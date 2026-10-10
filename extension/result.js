@@ -208,7 +208,7 @@ function cropDown(e) {
 // Markup: shapes live in pixels of the uncropped capture (see markup.js); off is where the current image starts in them.
 // Widths and text sizes are picked in screen pixels and stored in capture pixels.
 const dpr = devicePixelRatio;
-let shapes = [], hist = ['[]'], step = 0, off = { x: 0, y: 0 }, tool = 'select', cur = null, editing = null, lastDown = 0;
+let shapes = [], hist = ['[]'], step = 0, off = { x: 0, y: 0 }, tool = 'select', cur = null, editing = null, lastDown = 0, gesture = false;
 const style = { pen: { c: '#e53935', w: 4 * dpr, size: 20 * dpr, fill: false }, hl: { c: '#fdd835', w: 4 * dpr } };
 const styleOf = type => type === 'hl' ? style.hl : style.pen;
 const measure = new OffscreenCanvas(1, 1).getContext('2d');
@@ -276,6 +276,7 @@ function setMarking(on) {
 $('markup').onclick = () => setMarking(!marking());
 stage.dataset.tool = tool;
 $('tools').onclick = ({ target }) => {
+  if (gesture) return;
   const d = target.closest('button')?.dataset ?? {}, s = shapes[cur];
   if (d.tool) {
     tool = stage.dataset.tool = d.tool;
@@ -400,13 +401,21 @@ function markDown(e) {
   };
 }
 
+// One gesture at a time: while a drag holds the pointer, other pointers and the editing keys wait, since its handlers hold a fixed shape index.
+// Losing the capture (release, pointercancel) ends the gesture as a release would, so hover can't keep drawing.
 stage.onpointerdown = e => {
-  if (e.button || !(cropping() || marking()) || e.target === edit) return;
+  if (gesture || e.button || !(cropping() || marking()) || e.target === edit) return;
   if (editing != null) return finishEdit();
   e.preventDefault(); // which also keeps focus where it was, so drop it from the toolbar: a focus ring there looks like the active tool
   document.activeElement.blur();
   stage.setPointerCapture(e.pointerId);
+  gesture = true;
   (cropping() ? cropDown : markDown)(e);
+};
+stage.onpointercancel = stage.onlostpointercapture = e => {
+  stage.onpointerup?.(e);
+  stage.onpointermove = stage.onpointerup = null;
+  gesture = false;
 };
 onkeydown = e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
@@ -414,6 +423,7 @@ onkeydown = e => {
     finishEdit();
     return run('print');
   }
+  if (gesture) return;
   if (cropping()) {
     if (e.key === 'Escape') endCrop();
     if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }
