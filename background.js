@@ -1,13 +1,14 @@
 import { imagesToPdf, quietRow, PAGE_W, PAGE_H, MARGIN } from './pdf.js';
+import { idb } from './idb.js';
 
 // Canvas height limit in Chrome; taller pages are scaled down to fit.
 const MAX_CANVAS = 32767;
 // Backstop for very long pages.
 const MAX_FRAMES = 100;
 
-chrome.runtime.onMessage.addListener(({ format, tab }) => { save(tab, format); });
+chrome.runtime.onMessage.addListener(({ format, tab, name }) => { save(tab, format, name); });
 
-async function save(tab, format) {
+async function save(tab, format, name) {
   const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text });
   const inPage = async (func, ...args) => (await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args }))[0].result;
   badge('...');
@@ -39,9 +40,9 @@ async function save(tab, format) {
     ctx.fillRect(0, 0, W, H);
     for (const f of frames) ctx.drawImage(f.img, 0, 0, Math.floor(f.cw * s), f.img.height, 0, Math.round(f.y * s * k), W, Math.round(f.img.height * k));
 
-    let url;
+    let blob;
     if (format === 'png') {
-      url = 'data:image/png;base64,' + btoa(bin(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer()));
+      blob = await canvas.convertToBlob({ type: 'image/png' });
     } else {
       // Paginate to Letter: each page is a band of the screenshot, cut at the least busy row in its bottom 20%.
       const pageH = Math.round(W * (PAGE_H - 2 * MARGIN) / (PAGE_W - 2 * MARGIN)), band = Math.round(pageH * 0.2);
@@ -54,11 +55,19 @@ async function save(tab, format) {
         pages.push({ jpg: bin(await (await page.convertToBlob({ type: 'image/jpeg', quality: 0.92 })).arrayBuffer()), w: W, h: end - top });
         top = end;
       }
-      url = 'data:application/pdf;base64,' + btoa(imagesToPdf(pages));
+      blob = new Blob([Uint8Array.from(imagesToPdf(pages), c => c.charCodeAt(0))], { type: 'application/pdf' });
     }
 
-    // saveAs prompts for the folder; Chrome's dialog opens in the last folder you saved to.
-    await chrome.downloads.download({ url, filename: fileName(tab) + '.' + format, saveAs: true });
+    // Write to the file picked in the popup; if that fails, don't lose the capture: download it instead.
+    try {
+      const w = await (await idb('readonly', s => s.get(tab.id))).createWritable();
+      await w.write(blob);
+      await w.close();
+    } catch (e) {
+      console.warn('Writing the picked file failed; saving to Downloads instead.', e);
+      const url = `data:${blob.type};base64,` + btoa(bin(await blob.arrayBuffer()));
+      await chrome.downloads.download({ url, filename: name });
+    }
     badge('');
   } catch (e) {
     console.error(e);
@@ -66,15 +75,6 @@ async function save(tab, format) {
   } finally {
     inPage(restore, startY).catch(() => {});
   }
-}
-
-// "261009104405 - www.ebay.com"
-function fileName(tab) {
-  const d = new Date(), p = n => String(n).padStart(2, '0');
-  const stamp = [d.getFullYear() % 100, d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(p).join('');
-  let host = '';
-  try { host = new URL(tab.url).hostname; } catch {}
-  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').slice(0, 120).replace(/[. ]+$/, '');
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
