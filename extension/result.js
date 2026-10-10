@@ -434,7 +434,8 @@ stage.onpointercancel = stage.onlostpointercapture = e => {
   gesture = false;
 };
 onkeydown = e => {
-  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p' || e.code === 'KeyP')) {
+  // Chrome's print shortcut follows the letter on Latin layouts (Dvorak too) and the physical P key on others.
+  if ((e.ctrlKey || e.metaKey) && (/^[a-z]$/i.test(e.key) ? e.key.toLowerCase() === 'p' : e.code === 'KeyP')) {
     e.preventDefault();
     finishEdit();
     return run('print');
