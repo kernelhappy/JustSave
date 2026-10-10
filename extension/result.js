@@ -322,6 +322,8 @@ function finishEdit() {
 }
 // A window blur (Alt+Tab) keeps the textarea focused for when the window returns; only a real blur ends the edit.
 edit.onblur = () => document.activeElement === edit || finishEdit();
+// Menu Print's dialog is that kind of blur too, so finish before it lays out the page.
+addEventListener('beforeprint', finishEdit);
 
 function newShape(p) {
   const { c, w, size } = styleOf(tool);
