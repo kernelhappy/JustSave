@@ -26,7 +26,7 @@
   .box [data-h=e], .box [data-h=w] { top: calc(50% - 6px); cursor: ew-resize; }
   .box [data-h=nw], .box [data-h=se] { cursor: nwse-resize; }
   .box [data-h=ne], .box [data-h=sw] { cursor: nesw-resize; }
-  #sel { outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; cursor: move; }
+  #sel { outline: 1px dashed #fff; box-shadow: 0 0 0 1000000px #0008; /* 100vmax fell short: a 32767px capture at 8x zoom is ~262000px */ cursor: move; }
   #pick { outline: 1px dashed #1e88e5; pointer-events: none; }
   #pick.ends { outline: none; }
   #pick i { pointer-events: auto; }
