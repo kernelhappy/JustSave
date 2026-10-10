@@ -434,7 +434,7 @@ stage.onpointercancel = stage.onlostpointercapture = e => {
   gesture = false;
 };
 onkeydown = e => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+  if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'p' || e.code === 'KeyP')) {
     e.preventDefault();
     finishEdit();
     return run('print');

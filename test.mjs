@@ -193,6 +193,13 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   assert.strictEqual(removed, 0, 'Delete on a <select> removed the shape');
   f({ key: 'Delete', target: { tagName: 'BODY' } });
   assert.strictEqual(removed, 1);
+  // Ctrl+P on a non-Latin layout (e.key 'з', e.code 'KeyP') must still be intercepted.
+  const ran = [];
+  const g = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    a => ran.push(a), () => {}, () => false, () => true, () => {}, {}, () => {}, () => {}, { dataset: {} });
+  let prevented = 0;
+  g({ ctrlKey: true, key: 'з', code: 'KeyP', target: { tagName: 'BODY' }, preventDefault: () => prevented++ });
+  assert.ok(prevented === 1 && ran[0] === 'print', 'Ctrl+P on a non-Latin layout was not intercepted');
 }
 // Fit in a window shorter than the header must not go to a zero or negative scale.
 {
