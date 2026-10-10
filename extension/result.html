@@ -10,9 +10,9 @@
   #logo { display: block; height: 32px; }
   button, select { padding: 6px 14px; font: inherit; cursor: pointer; }
   #status { margin-left: 8px; color: light-dark(#555, #aaa); }
-  #stage { position: relative; width: fit-content; margin: 16px auto; overflow: clip; box-shadow: 0 1px 6px #0004; }
+  #stage { position: relative; width: fit-content; margin: 16px auto; box-shadow: 0 1px 6px #0004; }
   #shot { display: block; }
-  #stage.cropping { cursor: crosshair; touch-action: none; user-select: none; }
+  #stage.cropping { overflow: clip; cursor: crosshair; touch-action: none; user-select: none; }
   #stage.cropping #shot { pointer-events: none; }
   #stage.marking { cursor: crosshair; touch-action: none; user-select: none; }
   #stage.marking[data-tool=select] { cursor: default; }
