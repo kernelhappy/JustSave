@@ -113,7 +113,8 @@ function applyZoom() {
   const w = shot.naturalWidth / devicePixelRatio, h = shot.naturalHeight / devicePixelRatio;
   if (!w) return;
   const fitW = Math.min(1, (document.documentElement.clientWidth - 32) / w);
-  scale = zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom;
+  // A window smaller than the chrome would give a zero or negative fit; floor it at the zoom-out limit.
+  scale = Math.max(0.05, zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom);
   shot.style.width = w * scale + 'px';
   $('zoom').textContent = Math.round(scale * 100) + '%';
   render();

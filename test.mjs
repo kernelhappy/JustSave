@@ -184,4 +184,13 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   f({ key: 'Delete', target: { tagName: 'BODY' } });
   assert.strictEqual(removed, 1);
 }
+// Fit in a window shorter than the header must not go to a zero or negative scale.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const shot = { naturalWidth: 800, naturalHeight: 600, style: {} }, label = {};
+  const [apply, get] = new Function('$', 'shot', 'header', 'document', 'innerHeight', 'devicePixelRatio', 'render', `let zoom = 'fit', scale = 1; ${src.match(/function applyZoom\(\) \{[\s\S]*?\n\}/)[0]} return [applyZoom, () => scale];`)(
+    () => label, shot, { offsetHeight: 90 }, { documentElement: { clientWidth: 1000 } }, 100, 1, () => {});
+  apply();
+  assert.ok(get() > 0, `fit scale ${get()} in a short window`);
+}
 console.log('ok');
