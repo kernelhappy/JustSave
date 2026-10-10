@@ -11,13 +11,16 @@ const $ = id => document.getElementById(id);
 // One-shot handoff from the service worker: this page keeps the capture in memory.
 // ponytail: reloading this tab loses the capture; keep the record until tab close if that bites.
 const id = location.hash.slice(1);
-const rec = await idb('readonly', s => s.get(id));
+const rec = await idb('readonly', s => s.get(id)).catch(console.error);
 if (rec) idb('readwrite', s => s.delete(id));
-else $('status').textContent = 'This capture is no longer available.';
-const { blob: png, name } = rec ?? {};
+const { blob: png, name, note } = rec ?? {};
 if (png) {
   document.title = name;
   $('shot').src = URL.createObjectURL(png);
+  $('status').textContent = note ?? '';
+} else {
+  $('status').textContent = 'This capture is no longer available.';
+  for (const el of document.querySelectorAll('header button, header select')) el.disabled = true;
 }
 
 // Format and quality start as last picked; quality only applies to JPG and PDF.
@@ -42,10 +45,19 @@ const ACTIONS = {
   async save(fmt) {
     const { description, mime } = TYPES[fmt];
     // The id makes Chrome reopen this dialog in the folder last used with it.
-    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: `${name}.${fmt}`, types: [{ description, accept: { [mime]: ['.' + fmt] } }] });
+    // No "All files" choice: the bytes are always encoded as fmt, whatever extension gets typed.
+    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: `${name}.${fmt}`, types: [{ description, accept: { [mime]: ['.' + fmt] } }], excludeAcceptAllOption: true });
+    const fresh = !(await handle.getFile()).size; // the picker creates a new file empty
     const w = await handle.createWritable();
-    await w.write(await encode(fmt));
-    await w.close();
+    try {
+      await w.write(await encode(fmt));
+      await w.close();
+    } catch (e) {
+      // Don't leave an empty file behind; an existing file keeps its old contents.
+      await w.abort().catch(() => {});
+      if (fresh) await handle.remove().catch(() => {});
+      throw e;
+    }
     return 'Saved ' + handle.name;
   },
   // Goes through Chrome's downloads, so it lands in Downloads and shows in download history.
@@ -64,13 +76,18 @@ const ACTIONS = {
   },
 };
 
+// One action at a time: a second Save would hit "File picker already active", and encodes are heavy.
+let busy = false;
 document.onclick = async ({ target }) => {
   const act = ACTIONS[target.dataset.act];
-  if (!act || !png) return;
+  if (!act || !png || busy) return;
+  busy = true;
   $('status').textContent = 'Working…';
   try {
     $('status').textContent = await act($('format').value);
   } catch (e) {
     $('status').textContent = e.name === 'AbortError' ? '' : 'Failed: ' + e.message;
+  } finally {
+    busy = false;
   }
 };

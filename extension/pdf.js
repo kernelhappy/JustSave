@@ -58,7 +58,10 @@ export async function canvasToPdf(canvas, quality = 0.92) {
     pages.push({ jpg: bin(await (await page.convertToBlob({ type: 'image/jpeg', quality })).arrayBuffer()), w: W, h: end - top });
     top = end;
   }
-  return new Blob([Uint8Array.from(imagesToPdf(pages), c => c.charCodeAt(0))], { type: 'application/pdf' });
+  // Plain loop: Uint8Array.from(string, fn) goes through the iterator and is ~50x slower on big PDFs.
+  const pdf = imagesToPdf(pages), bytes = new Uint8Array(pdf.length);
+  for (let i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i);
+  return new Blob([bytes], { type: 'application/pdf' });
 }
 
 // ArrayBuffer -> binary string (one char per byte), chunked to stay under argument limits.
