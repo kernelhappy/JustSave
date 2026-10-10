@@ -86,6 +86,8 @@ async function stitch(tab, full, start, inPage) {
   // captureVisibleTab grabs whatever tab is showing, so a tab switch would stitch in the wrong page.
   // A tab dragged to another window is still active there, so check the window too.
   const checkActive = async () => { const t = await chrome.tabs.get(tab.id); if (!t.active || t.windowId !== tab.windowId) throw new Error('Tab switched during capture'); };
+  // A minimized or fully covered window stops painting: captureVisibleTab would return the last (stale) frame.
+  const checkVisible = async () => { if (await inPage(() => document.visibilityState) === 'hidden') throw new Error('Window hidden or minimized during capture'); };
   const x0 = full ? 0 : start.x, y0 = full ? 0 : start.y;
   const x1 = full ? start.w : x0 + 1, y1 = full ? start.h : y0 + 1;
 
@@ -102,8 +104,10 @@ async function stitch(tab, full, start, inPage) {
       }
       await shotSlot(); // before checkActive, so a wait can't let a tab switch slip in
       await checkActive();
+      await checkVisible();
       const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
       await checkActive();
+      await checkVisible();
       frames.push({ ...m, png: await (await fetch(shot)).blob() }); // decoded one at a time while drawing: 100 full-res bitmaps can run the worker out of memory
       more = true;
       // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.

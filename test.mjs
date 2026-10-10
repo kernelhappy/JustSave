@@ -163,6 +163,16 @@ const bg = (await import('node:fs')).readFileSync('./extension/background.js', '
   const { note } = await run({ windowId: 1 }, true, page, inPage);
   assert(note, 'partial last row cut without a note');
 }
+// stitch(): a minimized or fully covered window stops painting, so captureVisibleTab returns a stale frame; refuse it.
+{
+  let shots = 0;
+  const run = new Function('chrome', 'MAX_FRAMES', 'fit', 'sleep', 'shotSlot', 'freeze', 'scrollToXY', 'createImageBitmap', 'OffscreenCanvas', 'fetch', 'async ' + fn('stitch') + 'return stitch;')(
+    { tabs: { get: async () => ({ active: true, windowId: 1 }), captureVisibleTab: async () => { shots++; return ''; } } }, 100, () => 1, async () => {}, async () => {}, 'freeze', 'scrollToXY',
+    async () => ({ width: 100, close() {} }), class { getContext() { return { fillRect() {}, drawImage() {} }; } convertToBlob() { return {}; } }, async () => ({ blob: async () => ({}) }));
+  const inPage = async (f, x, y) => f === 'scrollToXY' ? { x, y: Math.min(y, 100), vw: 100, vh: 100, iw: 100 } : typeof f === 'function' ? 'hidden' : undefined;
+  await assert.rejects(run({ windowId: 1 }, true, { w: 100, h: 200 }, inPage), /hidden|minimized|visible/i, 'stitched frames from a hidden window');
+  assert.strictEqual(shots, 0, 'captured a hidden window');
+}
 let timer, shield = { style: {}, remove() { shield.gone = true; } };
 const listeners = new Set(), page = { dataset: { justsave: 'color:red' }, setAttribute(k, v) { page.restored = v; } };
 const doc = { createElement: () => shield, documentElement: { append() {} } };
