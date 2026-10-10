@@ -36,6 +36,7 @@
   #tools[hidden] { display: none; }
   #tools button { padding: 4px 10px; min-width: 34px; }
   #tools .sep { width: 12px; }
+  #tsize { min-width: 2em; text-align: center; font-variant-numeric: tabular-nums; }
   #tools [data-c] { width: 26px; min-width: 0; height: 26px; padding: 0; border-radius: 50%; border: 1px solid #0006; background: var(--c); }
   #tools [data-w] i { display: block; width: 18px; background: currentColor; }
   header [aria-pressed=true] { outline: 2px solid #1e88e5; outline-offset: 1px; }
@@ -78,10 +79,10 @@
   </picture>
   <div id="tools" hidden>
     <button data-tool="select" title="Select: drag to move, handles resize, double-click text to edit, Del deletes">↖</button>
-    <button data-tool="hl" title="Highlighter (Shift: straight line)">▬</button>
-    <button data-tool="pen" title="Pen (Shift: straight line)">✎</button>
-    <button data-tool="line" title="Line">╱</button>
-    <button data-tool="arrow" title="Arrow">→</button>
+    <button data-tool="hl" title="Highlighter (Shift: straight line, snapped to 45°)">▬</button>
+    <button data-tool="pen" title="Pen (Shift: straight line, snapped to 45°)">✎</button>
+    <button data-tool="line" title="Line (Shift: snap to 45°)">╱</button>
+    <button data-tool="arrow" title="Arrow (Shift: snap to 45°)">→</button>
     <button data-tool="rect" title="Rectangle (Shift: square)">▭</button>
     <button data-tool="ellipse" title="Ellipse (Shift: circle)">◯</button>
     <button data-tool="cloud" title="Cloud">☁</button>
@@ -99,9 +100,11 @@
     <button data-w="4" aria-label="Medium"><i style="height:4px"></i></button>
     <button data-w="8" aria-label="Thick"><i style="height:8px"></i></button>
     <span class="sep"></span>
-    <button data-size="14" aria-label="Small text" style="font-size:11px">A</button>
-    <button data-size="20" aria-label="Medium text" style="font-size:14px">A</button>
-    <button data-size="32" aria-label="Large text" style="font-size:18px">A</button>
+    <button data-fill title="Fill rectangles, ellipses and clouds (a black box redacts)">◼</button>
+    <span class="sep"></span>
+    <button data-size="-1" aria-label="Smaller text">A−</button>
+    <span id="tsize" title="Text size"></span>
+    <button data-size="1" aria-label="Larger text">A+</button>
     <span class="sep"></span>
     <button data-cmd="undo" title="Undo (Ctrl+Z)">↶</button>
     <button data-cmd="redo" title="Redo (Ctrl+Y)">↷</button>

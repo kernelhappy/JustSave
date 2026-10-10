@@ -1,6 +1,6 @@
 import { idb } from './idb.js';
 import { canvasToPdf } from './pdf.js';
-import { toSvg, bounds, handles, move, resize, dragEdges, LH, PAD } from './markup.js';
+import { toSvg, bounds, handles, move, resize, dragEdges, snap, nextSize, LH, PAD } from './markup.js';
 
 const TYPES = {
   png: { description: 'PNG image', mime: 'image/png' },
@@ -114,12 +114,23 @@ function applyZoom() {
   render();
 }
 shot.onload = onresize = applyZoom;
+const zoomBy = f => { zoom = Math.min(8, Math.max(0.05, scale * f)); applyZoom(); };
 $('zoombar').onclick = ({ target }) => {
   const z = target.dataset.zoom;
   if (!z) return;
-  zoom = z === 'in' || z === 'out' ? Math.min(8, Math.max(0.05, scale * (z === 'in' ? 1.25 : 0.8))) : z;
+  if (z === 'in' || z === 'out') return zoomBy(z === 'in' ? 1.25 : 0.8);
+  zoom = z;
   applyZoom();
 };
+// Ctrl+wheel (and trackpad pinch) zooms the capture instead of the page, keeping the point under the pointer in place.
+addEventListener('wheel', e => {
+  if (!e.ctrlKey || !shot.naturalWidth) return;
+  e.preventDefault();
+  const r = shot.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  zoomBy(Math.exp(-e.deltaY * 0.002));
+  const n = shot.getBoundingClientRect();
+  scrollBy(n.left + fx * n.width - e.clientX, n.top + fy * n.height - e.clientY);
+}, { passive: false });
 
 const stage = $('stage'), sel = $('sel'), pickBox = $('pick'), edit = $('edit'), ink = $('ink');
 const cropping = () => stage.classList.contains('cropping'), marking = () => stage.classList.contains('marking');
@@ -190,7 +201,7 @@ function cropDown(e) {
 // Widths and text sizes are picked in screen pixels and stored in capture pixels.
 const dpr = devicePixelRatio;
 let shapes = [], hist = ['[]'], step = 0, off = { x: 0, y: 0 }, tool = 'select', cur = null, editing = null, lastDown = 0;
-const style = { pen: { c: '#e53935', w: 4 * dpr, size: 20 * dpr }, hl: { c: '#fdd835', w: 4 * dpr } };
+const style = { pen: { c: '#e53935', w: 4 * dpr, size: 20 * dpr, fill: false }, hl: { c: '#fdd835', w: 4 * dpr } };
 const styleOf = type => type === 'hl' ? style.hl : style.pen;
 const measure = new OffscreenCanvas(1, 1).getContext('2d');
 measure.font = '600 100px system-ui, sans-serif';
@@ -220,8 +231,9 @@ function render() {
   for (const b of $('tools').querySelectorAll('button')) {
     const d = b.dataset;
     if (d.cmd) b.disabled = d.cmd === 'undo' ? !step : d.cmd === 'redo' ? step === hist.length - 1 : !s;
-    else b.setAttribute('aria-pressed', d.tool ? d.tool === tool : d.c ? d.c === now.c : d.w ? d.w * dpr === now.w : d.size * dpr === now.size);
+    else if (!d.size) b.setAttribute('aria-pressed', d.tool ? d.tool === tool : d.c ? d.c === now.c : d.w ? d.w * dpr === now.w : !!(s ? s.fill : style.pen.fill));
   }
+  $('tsize').textContent = Math.round((s?.size ?? style.pen.size) / dpr);
 }
 function commit() {
   const j = JSON.stringify(shapes);
@@ -263,10 +275,11 @@ $('tools').onclick = ({ target }) => {
   } else if (d.cmd) ({ undo: () => go(-1), redo: () => go(1), del: remove })[d.cmd]();
   else {
     // A style button sets the style for new shapes of that kind and restyles the selected shape.
-    const k = d.c ? 'c' : d.w ? 'w' : d.size ? 'size' : null;
+    // Text size and fill only apply to some shapes, so they always come from and go to the main style.
+    const k = d.c ? 'c' : d.w ? 'w' : d.size ? 'size' : 'fill' in d ? 'fill' : null;
     if (!k) return;
-    const v = k === 'c' ? d.c : d[k] * dpr;
-    styleOf(s?.type ?? tool)[k] = v;
+    const v = k === 'c' ? d.c : k === 'w' ? d.w * dpr : k === 'size' ? nextSize((s?.size ?? style.pen.size) / dpr, +d.size) * dpr : !(s ? s.fill : style.pen.fill);
+    (k === 'size' || k === 'fill' ? style.pen : styleOf(s?.type ?? tool))[k] = v;
     if (s && k in s) {
       shapes[cur] = { ...s, [k]: v };
       return commit();
@@ -302,7 +315,7 @@ function newShape(p) {
   if (tool === 'pen' || tool === 'hl') return { type: tool, c, w, pts: [p] };
   if (tool === 'line' || tool === 'arrow') return { type: tool, c, w, pts: [p, p] };
   if (tool === 'callout') return { type: tool, c, w, size, x: p[0], y: p[1], text: '', em: 0, tip: p };
-  return { type: tool, c, w, l: p[0], t: p[1], r: p[0], b: p[1] };
+  return { type: tool, c, w, fill: style.pen.fill, l: p[0], t: p[1], r: p[0], b: p[1] };
 }
 const atInk = ev => { const [x, y] = at(ev); return [x + off.x, y + off.y]; };
 // A handle of the selected shape resizes it; otherwise Select picks and moves, Text places or edits on release, and the rest draw.
@@ -311,7 +324,11 @@ function markDown(e) {
   let i = cur, upd;
   if (h) {
     const from = shapes[i];
-    upd = (ev, dx, dy) => resize(from, h, dx, dy);
+    upd = (ev, dx, dy) => {
+      const r = resize(from, h, dx, dy);
+      if (ev.shiftKey && r.pts?.length === 2) r.pts[h] = snap(r.pts[1 - h], r.pts[h]); // Shift snaps an end to 45° steps
+      return r;
+    };
   } else if (tool === 'select') {
     // Double-click is detected here: the re-render below replaces the pressed element, so Chrome sends no dblclick.
     const again = hit && hi === cur && e.timeStamp - lastDown < 500;
@@ -342,10 +359,10 @@ function markDown(e) {
     const from = shapes[i];
     upd = tool === 'pen' || tool === 'hl' ? (ev, dx, dy, p) => {
       const s = shapes[i], q = s.pts.at(-1);
-      if (ev.shiftKey) s.pts = [p0, p];
+      if (ev.shiftKey) s.pts = [p0, snap(p0, p)];
       else if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 2) s.pts.push(p);
       return s;
-    } : tool === 'line' || tool === 'arrow' ? (ev, dx, dy, p) => ({ ...from, pts: [p0, p] })
+    } : tool === 'line' || tool === 'arrow' ? (ev, dx, dy, p) => ({ ...from, pts: [p0, ev.shiftKey ? snap(p0, p) : p] })
       : tool === 'callout' ? (ev, dx, dy, p) => ({ ...from, x: p[0], y: p[1] })
       : (ev, dx, dy) => {
         if (ev.shiftKey) {

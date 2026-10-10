@@ -115,7 +115,11 @@ await new Function('document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 
   { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
 assert(Date.now() - t0 < 1000, 'scrollThrough kept waiting on a page that does not scroll');
 // Markup geometry and serialization.
-const { dragEdges, bounds, move, resize, toSvg } = await import('./extension/markup.js');
+const { dragEdges, bounds, move, resize, toSvg, snap, nextSize } = await import('./extension/markup.js');
+assert.deepStrictEqual(snap([0, 0], [10, 2]).map(Math.round), [10, 0]); // near-horizontal -> horizontal
+assert.deepStrictEqual(snap([0, 0], [-1, -10]).map(Math.round), [0, -10]); // near-vertical -> vertical
+assert.deepStrictEqual(snap([0, 0], [9, 11]).map(v => Math.round(v * 10)), [100, 100]); // diagonal, same length
+assert.deepStrictEqual([nextSize(20, 1), nextSize(20, -1), nextSize(21, -1), nextSize(96, 1), nextSize(8, -1)], [24, 18, 20, 96, 8]);
 assert.deepStrictEqual(dragEdges({ l: 10, t: 10, r: 20, b: 20 }, 'e', -15, 0), { l: 5, t: 10, r: 10, b: 20 }); // past the far edge flips
 assert.deepStrictEqual(dragEdges({ l: 10, t: 10, r: 20, b: 20 }, 'nw', -50, 5, { l: 0, t: 0, r: 30, b: 30 }), { l: 0, t: 15, r: 20, b: 20 });
 assert.deepStrictEqual(resize({ type: 'pen', pts: [[0, 0], [5, 5], [10, 10]] }, 'se', 10, 0).pts, [[0, 0], [10, 5], [20, 10]]);
@@ -132,5 +136,6 @@ assert.match(svg, /viewBox="5 6 100 50" width="100" height="50"/); // the crop o
 assert.match(svg, /&#60;a&#62;<\/tspan><tspan[^>]*>&#38;b</);
 assert.strictEqual(svg.match(/A\d/g).length, 8 + 4 + 8 + 4); // 12-px scallops: 100 / 12 ≈ 8 per long side, 50 / 12 ≈ 4 per short
 assert.doesNotMatch(svg, /opacity="0"/); // hit outlines only on screen
+assert.match(toSvg([{ type: 'ellipse', c: '#000', w: 2, fill: true, l: 0, t: 0, r: 9, b: 9 }], { x: 0, y: 0, w: 9, h: 9 }), /fill="#000"/);
 assert.strictEqual(toSvg([{ type: 'rect', c: 'red', w: 2, l: 0, t: 0, r: 9, b: 9 }], { x: 0, y: 0, w: 9, h: 9 }, 8).match(/stroke-width="10"/g).length, 1);
 console.log('ok');

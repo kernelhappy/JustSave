@@ -1,6 +1,6 @@
 // Markup shapes, in pixels of the uncropped capture. One SVG serves the screen overlay and the export, so they match.
 // { type: 'pen'|'hl'|'line'|'arrow', c, w, pts: [[x, y], ...] }
-// { type: 'rect'|'ellipse'|'cloud', c, w, l, t, r, b }
+// { type: 'rect'|'ellipse'|'cloud', c, w, fill, l, t, r, b }  fill: solid in c
 // { type: 'text', c, size, x, y, text, em }  em: the widest line's width per unit of size
 // { type: 'callout', c, w, size, x, y, text, em, tip: [x, y] }
 export const LH = 1.25, PAD = 0.4; // line height and callout padding, in font sizes
@@ -29,6 +29,16 @@ export function bounds(s) {
   }
   return { l: s.l, t: s.t, r: s.r, b: s.b };
 }
+
+// Snaps p to the nearest multiple of 45° around p0, keeping its distance.
+export function snap([x0, y0], [x, y]) {
+  const d = Math.hypot(x - x0, y - y0), a = Math.round(Math.atan2(y - y0, x - x0) / (Math.PI / 4)) * Math.PI / 4;
+  return [x0 + d * Math.cos(a), y0 + d * Math.sin(a)];
+}
+
+// Text sizes, in screen pixels, that the size buttons step through from any size.
+const SIZES = [8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 80, 96];
+export const nextSize = (px, dir) => (dir > 0 ? SIZES.find(v => v > px + 0.5) : SIZES.findLast(v => v < px - 0.5)) ?? px;
 
 // Two-point shapes drag their ends, text scales from its corners, the rest resize by edges and corners.
 export const handles = s => s.pts?.length === 2 ? ['0', '1'] : s.size ? ['nw', 'ne', 'se', 'sw', ...(s.tip ? ['tip'] : [])] : ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -71,8 +81,8 @@ function cloud({ l, t, r, b, w }) {
 
 // pad > 0 draws a pad-wider outline instead, for hit testing.
 function draw(s, pad = 0) {
-  const { c } = s, w = (s.type === 'hl' ? s.w * 4 : s.w) + pad;
-  const line = (d, more = '') => `<path d="${d}" fill="none" stroke="${c}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${more}/>`;
+  const { c } = s, w = (s.type === 'hl' ? s.w * 4 : s.w) + pad, fill = s.fill ? c : 'none';
+  const line = (d, more = '', fill = 'none') => `<path d="${d}" fill="${fill}" stroke="${c}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${more}/>`;
   const arrow = ([x0, y0], [x1, y1]) => {
     const d = Math.hypot(x1 - x0, y1 - y0), L = s.w * 3 + 12, ux = (x1 - x0) / d || 0, uy = (y1 - y0) / d || 0, k = Math.min(L * 0.8, d);
     const bx = x1 - ux * L, by = y1 - uy * L, hw = L / 2;
@@ -84,12 +94,12 @@ function draw(s, pad = 0) {
     case 'pen': case 'line': return line(path(s.pts));
     case 'hl': return line(path(s.pts), ' stroke-opacity="0.4"');
     case 'arrow': return arrow(...s.pts);
-    case 'rect': return line(rectD(s));
+    case 'rect': return line(rectD(s), '', fill);
     case 'ellipse': {
       const rx = f((s.r - s.l) / 2), ry = f((s.b - s.t) / 2), cy = f(s.t + ry);
-      return line(`M${f(s.l)} ${cy}A${rx} ${ry} 0 1 0 ${f(s.r)} ${cy}A${rx} ${ry} 0 1 0 ${f(s.l)} ${cy}Z`);
+      return line(`M${f(s.l)} ${cy}A${rx} ${ry} 0 1 0 ${f(s.r)} ${cy}A${rx} ${ry} 0 1 0 ${f(s.l)} ${cy}Z`, '', fill);
     }
-    case 'cloud': return line(cloud(s));
+    case 'cloud': return line(cloud(s), '', fill);
     case 'text': return pad ? `<path d="${rectD(bounds(s))}"/>` : text(s.x, s.y, c);
     case 'callout': {
       const b = bounds(s), p = PAD * s.size;
