@@ -171,9 +171,17 @@ const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
 // scrollThrough: stop when the page no longer scrolls (fractional zoom, unscrollable window) instead of looping 100x150ms.
 const t0 = Date.now();
-await new Function('document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(
-  { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
+await new Function('window', 'document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(
+  {}, { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
 assert(Date.now() - t0 < 1000, 'scrollThrough kept waiting on a page that does not scroll');
+// scrollThrough: re-arms the watchdog each step, so a long scroll-through plus a 30s fast capture can't let it unlock the page mid-capture.
+{
+  let arms = 0;
+  const env = { window: { justsaveArm: () => arms++ }, document: { documentElement: { scrollWidth: 800, scrollHeight: 3000 } }, scrollX: 0, scrollY: 0, innerHeight: 600,
+    scrollBy: ({ top }) => { env.scrollY += top; }, setTimeout: f => f() };
+  await new Function('env', 'with (env) { async ' + fn('scrollThrough') + 'return scrollThrough(); }')(env);
+  assert(arms >= 4, 'scrollThrough re-armed the watchdog ' + arms + 'x over 4 steps');
+}
 // Markup geometry and serialization.
 const { dragEdges, bounds, move, resize, toSvg, snap, nextSize } = await import('./extension/markup.js');
 assert.deepStrictEqual(snap([0, 0], [10, 2]).map(Math.round), [10, 0]); // near-horizontal -> horizontal

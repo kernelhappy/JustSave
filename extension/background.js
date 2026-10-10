@@ -175,7 +175,7 @@ function block() {
     window.justsaveFrozen = null;
   };
   // Watchdog: if the service worker dies mid-capture, restore() never comes, so unlock after 60s of silence
-  // (longest gap: fast capture's 30s timeout plus encoding). Every injected step re-arms it.
+  // (longest gap: fast capture's 30s timeout plus encoding). Every injected step (each scrollThrough step too) re-arms it.
   window.justsaveArm = () => { clearTimeout(window.justsaveDog); window.justsaveDog = setTimeout(window.justsaveUndo, 60000); };
   window.justsaveArm();
 }
@@ -191,6 +191,7 @@ function here() {
 async function scrollThrough() {
   const d = document.scrollingElement || document.documentElement, x = scrollX, y = scrollY, w = d.scrollWidth, h = d.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < 100 && scrollY + innerHeight < h; i++) {
+    window.justsaveArm?.(); // a long scroll-through plus a 30s fast capture would outlast one 60s watchdog
     const before = scrollY;
     scrollBy({ top: innerHeight, behavior: 'instant' });
     if (scrollY === before) break; // at the bottom (fractional zoom can keep it a hair short of h) or the window can't scroll
