@@ -128,6 +128,16 @@ assert.strictEqual(files.size, 0, 'orphaned capture');
 }
 // Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
 const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
+// stitch(): hitting MAX_FRAMES partway through the bottom row leaves its right part white, which needs the truncation note too.
+{
+  const page = { w: 297, h: 3367 }; // 3 columns x 34 rows: frame 100 is the bottom row's first column
+  const run = new Function('chrome', 'MAX_FRAMES', 'fit', 'sleep', 'shotSlot', 'freeze', 'scrollToXY', 'createImageBitmap', 'OffscreenCanvas', 'fetch', 'async ' + fn('stitch') + 'return stitch;')(
+    { tabs: { get: async () => ({ active: true, windowId: 1 }), captureVisibleTab: async () => '' } }, 100, () => 1, async () => {}, async () => {}, 'freeze', 'scrollToXY',
+    async () => ({ width: 100, close() {} }), class { getContext() { return { fillRect() {}, drawImage() {} }; } convertToBlob() { return {}; } }, async () => ({ blob: async () => ({}) }));
+  const inPage = async (f, x, y) => f === 'scrollToXY' ? { x: Math.min(x, page.w - 100), y: Math.min(y, page.h - 100), vw: 100, vh: 100, iw: 100 } : undefined;
+  const { note } = await run({ windowId: 1 }, true, page, inPage);
+  assert(note, 'partial last row cut without a note');
+}
 let timer, shield = { style: {}, remove() { shield.gone = true; } };
 const listeners = new Set(), page = { dataset: { justsave: 'color:red' }, setAttribute(k, v) { page.restored = v; } };
 const doc = { createElement: () => shield, documentElement: { append() {} } };

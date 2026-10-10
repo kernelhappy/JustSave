@@ -109,7 +109,9 @@ async function stitch(tab, full, start, inPage) {
     ctx.drawImage(img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
     img.close();
   }
-  const cut = frames.length >= MAX_FRAMES && cssH < start.h - y0;
+  // Cut short above the bottom, or partway through the last row (its right part stays white).
+  const last = frames[frames.length - 1];
+  const cut = frames.length >= MAX_FRAMES && (cssH < start.h - y0 || last.x + last.vw < x0 + cssW);
   return { blob: await canvas.convertToBlob({ type: 'image/png' }), note: cut ? `Page too long: captured the first ${MAX_FRAMES} screens.` : undefined };
 }
 
