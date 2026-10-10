@@ -397,6 +397,23 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   await act.print();
   assert.ok(!cls.has('burned'), 'body.burned left set after a print() that never fired afterprint');
 }
+// Save: an AbortError from close() (Safe Browsing / DLP block after write) is a failure, not a cancelled picker.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const abort = () => Object.assign(new Error('Write operation blocked by Safe Browsing.'), { name: 'AbortError' });
+  const els = {}, $ = id => (els[id] ??= { value: 'png', textContent: '' });
+  let picker;
+  const run = new Function('$', 'encode', 'showSaveFilePicker', 'TYPES', 'name', 'png',
+    `const ACTIONS = {${src.match(/async save\(fmt\) \{[\s\S]*?\n  \},/)[0]}}; ${src.match(/let busy = false;[\s\S]*?\n\}/)[0]}; return run;`)(
+    $, async () => ({}), async () => picker(), { png: { description: 'PNG', mime: 'image/png' } }, 'x', {});
+  picker = async () => ({ name: 'x.png', getFile: async () => ({ size: 0 }), remove: async () => {},
+    createWritable: async () => ({ write: async () => {}, close: async () => { throw abort(); }, abort: async () => {} }) });
+  await run('save');
+  assert.match(els.status.textContent, /^Failed: .*Safe Browsing/, 'blocked write shown as a cancel');
+  picker = async () => { throw abort(); };
+  await run('save');
+  assert.strictEqual(els.status.textContent, '', 'cancelled picker reported as a failure');
+}
 // Popup: a click made while the script-access probe is still pending (page loading) must still capture, not be dropped.
 {
   const sent = [];

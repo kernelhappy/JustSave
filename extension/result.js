@@ -56,7 +56,10 @@ const ACTIONS = {
     const { description, mime } = TYPES[fmt];
     // The id makes Chrome reopen this dialog in the folder last used with it.
     // No "All files" choice: the bytes are always encoded as fmt, whatever extension gets typed.
-    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: `${name}.${fmt}`, types: [{ description, accept: { [mime]: ['.' + fmt] } }], excludeAcceptAllOption: true });
+    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: `${name}.${fmt}`, types: [{ description, accept: { [mime]: ['.' + fmt] } }], excludeAcceptAllOption: true })
+      // Only the picker's AbortError means the user cancelled; close() also rejects with one when Safe Browsing or DLP blocks the write.
+      .catch(e => { if (e.name === 'AbortError') return null; throw e; });
+    if (!handle) return '';
     const fresh = !(await handle.getFile()).size; // the picker creates a new file empty
     const w = await handle.createWritable();
     try {
@@ -100,7 +103,7 @@ async function run(key) {
   try {
     $('status').textContent = await act($('format').value);
   } catch (e) {
-    $('status').textContent = e.name === 'AbortError' ? '' : 'Failed: ' + e.message;
+    $('status').textContent = 'Failed: ' + e.message;
   } finally {
     busy = false;
   }
