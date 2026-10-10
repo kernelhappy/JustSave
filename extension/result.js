@@ -339,6 +339,9 @@ function startEdit(i) {
   edit.hidden = false;
   render();
   edit.focus();
+  // focus() won't scroll an editor that is in the viewport but under the fixed header.
+  const under = header.offsetHeight - edit.getBoundingClientRect().top;
+  if (under > 0) scrollBy(0, -under);
 }
 // Click away or Esc keeps the text; emptied text removes its shape.
 function finishEdit() {

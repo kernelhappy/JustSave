@@ -486,4 +486,12 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   const b = bounds(shapes[0]);
   assert.ok(b.r <= 100 && b.b <= 100, 'callout box covers its own point');
 }
+// Editing a text whose top is under the fixed header scrolls it clear of the header.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/function startEdit[\s\S]*?\n}/)[0];
+  let dy = 0;
+  const edit = { focus() {}, getBoundingClientRect: () => ({ top: 30 }) };
+  new Function('shapes', 'edit', 'render', 'header', 'scrollBy', `let editing, cur; ${src}; startEdit(0);`)([{ text: 'a' }], edit, () => {}, { offsetHeight: 50 }, (x, y) => { dy += y; });
+  assert.strictEqual(dy, -20, 'startEdit scrolls the editor out from under the header');
+}
 console.log('ok');
