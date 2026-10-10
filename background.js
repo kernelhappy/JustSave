@@ -6,7 +6,19 @@ const MAX_CANVAS = 32767;
 // Backstop for very long pages.
 const MAX_FRAMES = 100;
 
-chrome.runtime.onMessage.addListener(({ format, tab, name }) => { save(tab, format, name); });
+// Replies true when the capture is in IndexedDB for the popup to write to its picked file.
+chrome.runtime.onMessage.addListener(({ format, tab, name, fallback }, _, reply) => {
+  if (fallback) return void idb('readonly', s => s.get(tab.id)).then(blob => download(blob, name, tab.id));
+  save(tab, format, name).then(reply);
+  return true;
+});
+
+// Normal download, for when the popup can't write the picked file.
+async function download(blob, name, key) {
+  const url = `data:${blob.type};base64,` + btoa(bin(await blob.arrayBuffer()));
+  await chrome.downloads.download({ url, filename: name });
+  if (key != null) await idb('readwrite', s => s.delete(key));
+}
 
 async function save(tab, format, name) {
   const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text });
@@ -58,20 +70,16 @@ async function save(tab, format, name) {
       blob = new Blob([Uint8Array.from(imagesToPdf(pages), c => c.charCodeAt(0))], { type: 'application/pdf' });
     }
 
-    // Write to the file picked in the popup; if that fails, don't lose the capture: download it instead.
-    try {
-      const w = await (await idb('readonly', s => s.get(tab.id))).createWritable();
-      await w.write(blob);
-      await w.close();
-    } catch (e) {
-      console.warn('Writing the picked file failed; saving to Downloads instead.', e);
-      const url = `data:${blob.type};base64,` + btoa(bin(await blob.arrayBuffer()));
-      await chrome.downloads.download({ url, filename: name });
-    }
+    // Hand off to the popup to write the picked file; if it was closed (click-away), download instead.
+    const popupOpen = (await chrome.runtime.getContexts({ contextTypes: ['POPUP'] })).length > 0;
+    if (popupOpen) await idb('readwrite', s => s.put(blob, tab.id));
+    else await download(blob, name);
     badge('');
+    return popupOpen;
   } catch (e) {
     console.error(e);
     badge('ERR');
+    return false;
   } finally {
     inPage(restore, startY).catch(() => {});
   }

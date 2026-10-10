@@ -10,14 +10,26 @@ document.onclick = async ({ target }) => {
   if (!format) return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const name = fileName(tab) + '.' + format;
+  let handle;
   try {
     // The id makes Chrome reopen this dialog in the folder last used with it.
-    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: name, types: [TYPES[format]] });
-    await idb('readwrite', s => s.put(handle, tab.id));
+    handle = await showSaveFilePicker({ id: 'justsave', suggestedName: name, types: [TYPES[format]] });
   } catch {
     return window.close(); // dialog cancelled
   }
-  await chrome.runtime.sendMessage({ format, tab, name });
+  // Stay open during capture: only this page holds write permission for the picked file.
+  document.body.textContent = 'Saving…';
+  if (await chrome.runtime.sendMessage({ format, tab, name })) {
+    try {
+      const w = await handle.createWritable();
+      await w.write(await idb('readonly', s => s.get(tab.id)));
+      await w.close();
+      await idb('readwrite', s => s.delete(tab.id));
+    } catch (e) {
+      console.error(e);
+      await chrome.runtime.sendMessage({ fallback: true, tab, name }); // don't lose the capture
+    }
+  }
   window.close();
 };
 
