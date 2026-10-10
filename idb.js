@@ -1,4 +1,4 @@
-// One IndexedDB store shared by the popup and service worker, for handing the finished capture to the popup.
+// One IndexedDB store shared by the popup and service worker, for handing a finished capture to its result tab.
 export const idb = (mode, fn) => new Promise((resolve, reject) => {
   const open = indexedDB.open('justsave', 1);
   open.onupgradeneeded = () => open.result.createObjectStore('files');

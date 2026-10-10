@@ -1,116 +1,126 @@
-import { imagesToPdf, quietRow, PAGE_W, PAGE_H, MARGIN } from './pdf.js';
 import { idb } from './idb.js';
 
-// Canvas height limit in Chrome; taller pages are scaled down to fit.
-const MAX_CANVAS = 32767;
-// Backstop for very long pages.
+// Chrome canvas limits (per side, and total pixels); bigger captures are scaled down to fit.
+const MAX_CANVAS = 32767, MAX_AREA = 268435456;
+// Backstop for very large pages.
 const MAX_FRAMES = 100;
 
-// Replies true when the capture is in IndexedDB for the popup to write to its picked file.
-chrome.runtime.onMessage.addListener(({ format, tab, name, fallback }, _, reply) => {
-  if (fallback) return void idb('readonly', s => s.get(tab.id)).then(blob => download(blob, name, tab.id));
-  save(tab, format, name).then(reply);
-  return true;
-});
+chrome.runtime.onMessage.addListener(({ mode, tab }) => { capture(tab, mode === 'full'); });
 
-// Normal download, for when the popup can't write the picked file.
-async function download(blob, name, key) {
-  const url = `data:${blob.type};base64,` + btoa(bin(await blob.arrayBuffer()));
-  await chrome.downloads.download({ url, filename: name });
-  if (key != null) await idb('readwrite', s => s.delete(key));
-}
-
-async function save(tab, format, name) {
+// Capture the visible area or the full page, then open it in a result tab (save, download, copy, print).
+async function capture(tab, full) {
   const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text });
   const inPage = async (func, ...args) => (await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args }))[0].result;
+  // captureVisibleTab grabs whatever tab is showing, so a tab switch would stitch in the wrong page.
+  const checkActive = async () => { if (!(await chrome.tabs.get(tab.id)).active) throw new Error('Tab switched during capture'); };
+  const name = fileName(tab);
   badge('...');
-  let startY = 0;
+  let start = { x: 0, y: 0 };
   try {
-    // Page height at click time is the capture height, so infinite-scroll results loaded
+    if (full) await inPage(block);
+    // Page size at click time is the capture size, so infinite-scroll results loaded
     // while we scroll (eBay, feeds) are ignored instead of chased.
-    const start = await inPage(scrollThrough);
-    startY = start.y;
+    start = await inPage(full ? scrollThrough : here);
+    const x0 = full ? 0 : start.x, y0 = full ? 0 : start.y;
+    const x1 = full ? start.w : x0 + 1, y1 = full ? start.h : y0 + 1;
 
-    // Capture what's on screen one viewport at a time; no viewport resizing, so the page lays out as displayed.
+    // Capture what's on screen one viewport at a time, left to right, then down;
+    // no viewport resizing, so the page lays out as displayed.
     const frames = [];
-    for (let y = 0; frames.length < MAX_FRAMES && y < start.h; ) {
-      const m = await inPage(scrollToY, y);
-      if (frames.length && m.y <= frames.at(-1).y) break; // couldn't scroll further: bottom reached
-      await inPage(freeze, frames.length > 0);
-      await sleep(600); // let content settle; captureVisibleTab is also rate-limited to 2/sec
-      const img = await createImageBitmap(await (await fetch(await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }))).blob());
-      frames.push({ ...m, img });
-      y = m.y + m.vh;
-    }
-
-    // Stitch. Frame pixels per CSS px (devicePixelRatio x zoom); crop off the scrollbar.
-    const last = frames.at(-1), s = last.img.width / last.iw, cssH = Math.min(start.h, last.y + last.vh);
-    const k = Math.min(1, MAX_CANVAS / (cssH * s));
-    const W = Math.floor(last.cw * s * k), H = Math.round(cssH * s * k);
-    const canvas = new OffscreenCanvas(W, H), ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, W, H);
-    for (const f of frames) ctx.drawImage(f.img, 0, 0, Math.floor(f.cw * s), f.img.height, 0, Math.round(f.y * s * k), W, Math.round(f.img.height * k));
-
-    let blob;
-    if (format === 'png') {
-      blob = await canvas.convertToBlob({ type: 'image/png' });
-    } else {
-      // Paginate to Letter: each page is a band of the screenshot, cut at the least busy row in its bottom 20%.
-      const pageH = Math.round(W * (PAGE_H - 2 * MARGIN) / (PAGE_W - 2 * MARGIN)), band = Math.round(pageH * 0.2);
-      const pages = [];
-      for (let top = 0; top < H; ) {
-        let end = Math.min(top + pageH, H);
-        if (end < H) end += quietRow(ctx.getImageData(0, end - band, W, band).data, W, band) - band;
-        const page = new OffscreenCanvas(W, end - top);
-        page.getContext('2d').drawImage(canvas, 0, top, W, end - top, 0, 0, W, end - top);
-        pages.push({ jpg: bin(await (await page.convertToBlob({ type: 'image/jpeg', quality: 0.92 })).arrayBuffer()), w: W, h: end - top });
-        top = end;
+    for (let y = y0, more = true; more && y < y1; ) {
+      more = false;
+      let nextY = y;
+      for (let x = x0; x < x1 && frames.length < MAX_FRAMES; ) {
+        const m = await inPage(scrollToXY, x, y);
+        if (frames.some(f => f.x === m.x && f.y === m.y)) break; // scroll clamped at the edge: nothing new
+        if (full) {
+          await inPage(freeze, frames.length > 0);
+          await sleep(600); // let content settle; captureVisibleTab is also rate-limited to 2/sec
+        }
+        await checkActive();
+        const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        await checkActive();
+        frames.push({ ...m, img: await createImageBitmap(await (await fetch(shot)).blob()) });
+        more = true;
+        // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.
+        x = m.x + m.vw - 1;
+        nextY = m.y + m.vh - 1;
       }
-      blob = new Blob([Uint8Array.from(imagesToPdf(pages), c => c.charCodeAt(0))], { type: 'application/pdf' });
+      y = nextY;
     }
 
-    // Hand off to the popup to write the picked file; if it was closed (click-away), download instead.
-    const popupOpen = (await chrome.runtime.getContexts({ contextTypes: ['POPUP'] })).length > 0;
-    if (popupOpen) await idb('readwrite', s => s.put(blob, tab.id));
-    else await download(blob, name);
+    // Stitch. Frame pixels per CSS px (devicePixelRatio x zoom); crop off both scrollbars.
+    const s = frames[0].img.width / frames[0].iw;
+    const cssW = Math.min(start.w, Math.max(...frames.map(f => f.x + f.vw))) - x0;
+    const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
+    const k = Math.min(1, MAX_CANVAS / (cssW * s), MAX_CANVAS / (cssH * s), Math.sqrt(MAX_AREA / (cssW * s * cssH * s)));
+    const px = v => Math.round(v * s * k);
+    const canvas = new OffscreenCanvas(px(cssW), px(cssH)), ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Crop to whole device pixels: at fractional scaling (125%, 150%) a partial row would blend in the scrollbar.
+    for (const f of frames) {
+      const sw = Math.floor(f.vw * s), sh = Math.floor(f.vh * s);
+      ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
+    }
+
+    const id = crypto.randomUUID(), blob = await canvas.convertToBlob({ type: 'image/png' });
+    await idb('readwrite', st => st.put({ blob, name }, id));
+    await chrome.tabs.create({ url: 'result.html#' + id, index: tab.index + 1, openerTabId: tab.id });
     badge('');
-    return popupOpen;
   } catch (e) {
     console.error(e);
     badge('ERR');
-    return false;
   } finally {
-    inPage(restore, startY).catch(() => {});
+    inPage(restore, start.x, start.y).catch(() => {});
   }
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-// ArrayBuffer -> binary string (one char per byte), chunked to stay under argument limits.
-function bin(buf) {
-  const u = new Uint8Array(buf);
-  let s = '';
-  for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
-  return s;
+// "261009104405 - www.ebay.com"
+function fileName(tab) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const stamp = [d.getFullYear() % 100, d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(p).join('');
+  let host = '';
+  try { host = new URL(tab.url).hostname; } catch {}
+  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').slice(0, 120).replace(/[. ]+$/, '');
 }
 
 // --- Injected into the page (must be self-contained) ---
 
+// Swallow clicks, scrolling and keys so the user can't disturb a full-page capture.
+// The shield is transparent, so it never shows in the frames.
+function block() {
+  const shield = document.createElement('div');
+  shield.id = 'justsave-shield';
+  shield.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:wait;background:transparent';
+  document.documentElement.append(shield);
+  window.justsaveStop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+  for (const t of ['wheel', 'keydown', 'touchmove']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
+}
+
+function here() {
+  const d = document.documentElement;
+  return { x: scrollX, y: scrollY, w: d.scrollWidth, h: d.scrollHeight };
+}
+
 // Scroll through the page (as tall as it is now) so lazy-loaded content loads;
-// returns the original scroll position and that height.
+// returns the original scroll position and the page size.
 async function scrollThrough() {
-  const y = scrollY, h = document.documentElement.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
+  const x = scrollX, y = scrollY, w = document.documentElement.scrollWidth, h = document.documentElement.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < 100 && scrollY + innerHeight < h; i++) {
     scrollBy({ top: innerHeight, behavior: 'instant' });
     await wait(150);
   }
-  return { y, h };
+  return { x, y, w, h };
 }
 
-function scrollToY(y) {
-  scrollTo({ top: y, behavior: 'instant' });
-  return { y: scrollY, vh: innerHeight, iw: innerWidth, cw: document.documentElement.clientWidth };
+// vw/vh: the viewport without scrollbars (standards-mode pages); iw: with them, to scale the frame.
+function scrollToXY(x, y) {
+  scrollTo({ left: x, top: y, behavior: 'instant' });
+  const d = document.documentElement;
+  return { x: scrollX, y: scrollY, vw: d.clientWidth, vh: d.clientHeight, iw: innerWidth };
 }
 
 // Sticky elements become relative (stay in their normal spot instead of repeating);
@@ -125,10 +135,12 @@ function freeze(hideFixed) {
   }
 }
 
-function restore(y) {
+function restore(x, y) {
+  document.getElementById('justsave-shield')?.remove();
+  for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
   for (const el of document.querySelectorAll('[data-justsave]')) {
     el.setAttribute('style', el.dataset.justsave);
     delete el.dataset.justsave;
   }
-  scrollTo({ top: y, behavior: 'instant' });
+  scrollTo({ left: x, top: y, behavior: 'instant' });
 }

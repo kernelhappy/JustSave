@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>JustSave</title>
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; background: #e8e8e8; }
+  header { position: sticky; top: 0; display: flex; gap: 8px; align-items: center; padding: 10px; background: #fff; box-shadow: 0 1px 4px #0003; }
+  button, select { padding: 6px 14px; font: inherit; cursor: pointer; }
+  #status { margin-left: 8px; color: #555; }
+  img { display: block; max-width: calc(100% - 32px); margin: 16px auto; box-shadow: 0 1px 6px #0004; }
+  @media print {
+    header { display: none; }
+    body { background: none; }
+    img { max-width: 100%; margin: 0; box-shadow: none; }
+  }
+</style>
+<header>
+  <select id="format" aria-label="Format">
+    <option value="png">PNG</option>
+    <option value="jpg">JPG</option>
+    <option value="pdf">PDF</option>
+  </select>
+  <button data-act="save">Save…</button>
+  <button data-act="download">Download</button>
+  <button data-act="copy">Copy</button>
+  <button data-act="print">Print</button>
+  <span id="status" role="status"></span>
+</header>
+<img id="shot" alt="Captured page">
+<script type="module" src="result.js"></script>
