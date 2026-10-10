@@ -77,7 +77,8 @@ async function stitch(tab, full, start, inPage) {
   const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
   const k = Math.min(1, MAX_CANVAS / (cssW * s), MAX_CANVAS / (cssH * s), Math.sqrt(MAX_AREA / (cssW * s * cssH * s)));
   const px = v => Math.round(v * s * k);
-  const canvas = new OffscreenCanvas(px(cssW), px(cssH)), ctx = canvas.getContext('2d');
+  const size = v => Math.floor(v * s * k + 1e-6); // floor: rounding both sides up can exceed MAX_AREA, which Chrome rejects
+  const canvas = new OffscreenCanvas(size(cssW), size(cssH)), ctx = canvas.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   // Crop to whole device pixels: at fractional scaling (125%, 150%) a partial row would blend in the scrollbar.

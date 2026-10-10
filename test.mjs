@@ -51,4 +51,15 @@ const set = {}, el = { dataset: {}, getAttribute: () => null, style: { setProper
 new Function('document', 'getComputedStyle', src + 'freeze(false);')({ querySelectorAll: () => [el] }, () => ({ position: 'sticky' }));
 assert.strictEqual(set.position, 'relative');
 for (const k of ['top', 'right', 'bottom', 'left']) assert.strictEqual(set[k], 'auto', k);
+// Stitch canvas: when the area limit binds, independently rounding each side up must not exceed it (Chrome rejects the canvas).
+const dims = [];
+globalThis.OffscreenCanvas = class { constructor(w, h) { dims.push([w, h]); } getContext() { return { fillRect() {}, drawImage() {} }; } convertToBlob() { return {}; } };
+globalThis.createImageBitmap = async () => ({ width: 8297 }); // 5531 CSS px at 150%
+globalThis.fetch = async () => ({ blob: async () => ({}) });
+chrome.tabs = { get: async () => ({ active: true }), captureVisibleTab: async () => '', create() {} };
+chrome.scripting.executeScript = async ({ func }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: 0, vw: 5531, vh: 21715, iw: 5531 } : { x: 0, y: 0, w: 5531, h: 21715 } }];
+onMsg({ mode: 'visible', tab: { id: 2, index: 0, url: 'https://x.test/' } });
+await new Promise(r => setTimeout(r, 10));
+assert.strictEqual(dims.length, 1);
+assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
 console.log('ok');
