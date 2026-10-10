@@ -9,6 +9,9 @@ const MAX_FRAMES = 100;
 
 // Tabs with a capture in progress: a second one would re-inject block() and interleave scrolling.
 const busy = new Set();
+// captureVisibleTab allows 2 calls/s per extension, not per tab: concurrent captures share one pacing.
+let nextShot = 0;
+const shotSlot = () => { const now = Date.now(), at = Math.max(now, nextShot); nextShot = at + 510; return sleep(at - now); };
 
 chrome.runtime.onMessage.addListener(({ mode, tab }) => {
   if (busy.has(tab.id)) return;
@@ -32,7 +35,7 @@ async function capture(tab, mode) {
     start = (await inPage(full ? scrollThrough : here).catch(e => { if (full) throw e; })) ?? start;
     const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
       : full || start.w ? await stitch(tab, full, start, inPage)
-      : { blob: await (await fetch(await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }))).blob() };
+      : { blob: await (await fetch(await shotSlot().then(() => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })))).blob() };
     const id = crypto.randomUUID();
     await idb('readwrite', st => st.put({ blob, name, note }, id));
     try {
@@ -72,8 +75,9 @@ async function stitch(tab, full, start, inPage) {
       if (frames.some(f => f.x === m.x && f.y === m.y)) break; // scroll clamped at the edge: nothing new
       if (full) {
         await inPage(freeze, frames.length > 0);
-        await sleep(600); // let content settle; captureVisibleTab is also rate-limited to 2/sec
+        await sleep(600); // let content settle
       }
+      await shotSlot(); // before checkActive, so a wait can't let a tab switch slip in
       await checkActive();
       const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
       await checkActive();

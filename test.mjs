@@ -62,7 +62,7 @@ globalThis.fetch = async () => ({ blob: async () => ({}) });
 chrome.tabs = { get: async () => ({ active: true }), captureVisibleTab: async () => '', create() {} };
 chrome.scripting.executeScript = async ({ func }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: 0, vw: 5531, vh: 21715, iw: 5531 } : { x: 0, y: 0, w: 5531, h: 21715 } }];
 onMsg({ mode: 'visible', tab: { id: 2, index: 0, url: 'https://x.test/' } });
-await new Promise(r => setTimeout(r, 10));
+await new Promise(r => setTimeout(r, 600)); // waits out the shared captureVisibleTab pacing
 assert.strictEqual(dims.length, 1);
 assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
 // Full page: frames are decoded one at a time while drawing, not all held as bitmaps (100 4K frames run the worker out of memory).
@@ -101,7 +101,7 @@ chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener 
 const updated = [];
 chrome.tabs.update = async (id, p) => { updated.push([id, p]); };
 onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 7, url: 'https://x.test/' } }); // create defaults to the focused window, not 7
-await new Promise(r => setTimeout(r, 50));
+await new Promise(r => setTimeout(r, 600));
 assert.strictEqual(created.length, 1);
 assert.strictEqual(created[0].index, 5);
 assert.strictEqual(files.size, 1);
@@ -110,8 +110,22 @@ assert.deepStrictEqual(updated, [[99, { autoDiscardable: false }]], 'result tab 
 files.clear();
 chrome.tabs.create = async () => { throw new Error('window closed'); };
 onMsg({ mode: 'visible', tab: { id: 5, index: 0, windowId: 7, url: 'https://x.test/' } });
-await new Promise(r => setTimeout(r, 50));
+await new Promise(r => setTimeout(r, 600));
 assert.strictEqual(files.size, 0, 'orphaned capture');
+// captureVisibleTab's 2 calls/s quota is per extension: concurrent captures in two tabs must share the pacing.
+{
+  const at = [], cvt = chrome.tabs.captureVisibleTab, ex = chrome.scripting.executeScript;
+  chrome.tabs.create = async () => ({ id: 98 });
+  chrome.tabs.get = async id => ({ active: true, windowId: id === 11 ? 8 : 7, index: 0 });
+  chrome.tabs.captureVisibleTab = async () => { at.push(Date.now()); return ''; };
+  chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
+  onMsg({ mode: 'full', tab: { id: 10, index: 0, windowId: 7, url: 'https://x.test/' } });
+  onMsg({ mode: 'full', tab: { id: 11, index: 0, windowId: 8, url: 'https://x.test/' } });
+  await new Promise(r => setTimeout(r, 2500));
+  assert.strictEqual(at.length, 4);
+  at.sort((a, b) => a - b).slice(1).forEach((t, i) => assert(t - at[i] >= 500, 'captureVisibleTab calls ' + (t - at[i]) + 'ms apart'));
+  chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex;
+}
 // Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
 const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
 let timer, shield = { style: {}, remove() { shield.gone = true; } };
