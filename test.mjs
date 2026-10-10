@@ -106,6 +106,16 @@ new Function('window', 'document', 'addEventListener', 'removeEventListener', 's
 assert(timer, 'block() arms no watchdog');
 timer();
 assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'watchdog left the page locked');
+// block() again after a service worker restart (busy flag lost): the earlier lock must not survive one undo.
+{
+  const win = {}, shields = [], live = [];
+  const run = () => new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', fn('block') + 'block();')(
+    win, { createElement: () => { const s = { style: {}, remove() { s.gone = true; } }; shields.push(s); return s; }, documentElement: { append() {} } },
+    (t, f) => live.push([t, f]), (t, f) => live.splice(live.findIndex(l => l[0] === t && l[1] === f) >>> 0, 1), () => 1, () => {});
+  run(); run();
+  win.justsaveUndo();
+  assert(shields.every(s => s.gone) && live.length === 0, 'second block() left the first lock in place');
+}
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);

@@ -142,6 +142,7 @@ function fileName(tab) {
 // Swallow clicks, scrolling and keys so the user can't disturb a full-page capture.
 // The shield is transparent, so it never shows in the frames.
 function block() {
+  window.justsaveUndo?.(); // a capture whose service worker died left its lock: undo it, or it outlives this one
   const shield = document.createElement('div');
   shield.id = 'justsave-shield';
   shield.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:wait;background:transparent';
