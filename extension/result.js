@@ -395,7 +395,8 @@ function markDown(e) {
 stage.onpointerdown = e => {
   if (e.button || !(cropping() || marking()) || e.target === edit) return;
   if (editing != null) return finishEdit();
-  e.preventDefault();
+  e.preventDefault(); // which also keeps focus where it was, so drop it from the toolbar: a focus ring there looks like the active tool
+  document.activeElement.blur();
   stage.setPointerCapture(e.pointerId);
   (cropping() ? cropDown : markDown)(e);
 };

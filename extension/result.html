@@ -37,7 +37,7 @@
   #tools button { padding: 4px 10px; min-width: 34px; }
   #tools .sep { width: 12px; }
   #tsize { min-width: 2em; text-align: center; font-variant-numeric: tabular-nums; }
-  #tools [data-c] { width: 26px; min-width: 0; height: 26px; padding: 0; border-radius: 50%; border: 1px solid #0006; background: var(--c); }
+  #tools [data-c] { width: 26px; min-width: 0; height: 26px; padding: 0; border-radius: 50%; border: 1px solid light-dark(#0006, #fff8); background: var(--c); }
   #tools [data-w] i { display: block; width: 18px; background: currentColor; }
   header [aria-pressed=true] { outline: 2px solid #1e88e5; outline-offset: 1px; }
   @media print {
@@ -94,7 +94,8 @@
     <button data-c="#fdd835" style="--c:#fdd835" aria-label="Yellow"></button>
     <button data-c="#43a047" style="--c:#43a047" aria-label="Green"></button>
     <button data-c="#1e88e5" style="--c:#1e88e5" aria-label="Blue"></button>
-    <button data-c="#212121" style="--c:#212121" aria-label="Black"></button>
+    <button data-c="#000000" style="--c:#000000" aria-label="Black"></button>
+    <button data-c="#ffffff" style="--c:#ffffff" aria-label="White"></button>
     <span class="sep"></span>
     <button data-w="2" aria-label="Thin"><i style="height:2px"></i></button>
     <button data-w="4" aria-label="Medium"><i style="height:4px"></i></button>
