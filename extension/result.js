@@ -108,6 +108,8 @@ document.onclick = ({ target }) => run(target.dataset.act);
 // Zoom: 'fit' (whole capture), 'width', or a factor where 1 = actual size (one capture pixel per screen pixel).
 // The fit modes never enlarge past actual size.
 const shot = $('shot'), header = document.querySelector('header');
+// The header is fixed, not sticky, so it stays put when a zoomed-in capture scrolls sideways; pad the page by its height.
+new ResizeObserver(() => { document.body.style.paddingTop = header.offsetHeight + 'px'; }).observe(header);
 let zoom = 'fit', scale = 1;
 function applyZoom() {
   const w = shot.naturalWidth / devicePixelRatio, h = shot.naturalHeight / devicePixelRatio;

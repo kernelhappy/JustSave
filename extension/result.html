@@ -4,7 +4,7 @@
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; font: 14px system-ui, sans-serif; background: light-dark(#e8e8e8, #18191c); }
-  header { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: light-dark(#fff, #202124); box-shadow: 0 1px 4px #0003; }
+  header { position: fixed; top: 0; left: 0; right: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: light-dark(#fff, #202124); box-shadow: 0 1px 4px #0003; }
   #zoombar { margin-left: auto; display: flex; gap: 4px; align-items: center; }
   #zoom { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
   #logo { display: block; height: 32px; }
@@ -43,7 +43,7 @@
   #printshot { display: none; }
   @media print {
     header, #sel, #pick, #edit { display: none; }
-    body { background: none; }
+    body { background: none; padding: 0 !important; }
     #stage { margin: 0; box-shadow: none; }
     #shot, #printshot { width: auto !important; max-width: 100%; }
     .burned #stage { display: none; }
