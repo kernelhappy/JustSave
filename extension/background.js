@@ -94,6 +94,7 @@ async function stitch(tab, full, start, inPage) {
   for (const f of frames) {
     const sw = Math.floor(f.vw * s), sh = Math.floor(f.vh * s);
     ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
+    f.img.close(); // free each frame now: 100 full-res bitmaps can run the worker out of memory
   }
   return canvas.convertToBlob({ type: 'image/png' });
 }
@@ -142,6 +143,19 @@ function block() {
   document.documentElement.append(shield);
   window.justsaveStop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
   for (const t of ['wheel', 'keydown', 'touchmove']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
+  window.justsaveUndo = () => {
+    clearTimeout(window.justsaveDog);
+    shield.remove();
+    for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
+    for (const el of document.querySelectorAll('[data-justsave]')) {
+      el.setAttribute('style', el.dataset.justsave);
+      delete el.dataset.justsave;
+    }
+  };
+  // Watchdog: if the service worker dies mid-capture, restore() never comes, so unlock after 60s of silence
+  // (longest gap: fast capture's 30s timeout plus encoding). Every injected step re-arms it.
+  window.justsaveArm = () => { clearTimeout(window.justsaveDog); window.justsaveDog = setTimeout(window.justsaveUndo, 60000); };
+  window.justsaveArm();
 }
 
 function here() {
@@ -162,6 +176,7 @@ async function scrollThrough() {
 
 // vw/vh: the viewport without scrollbars (scrollingElement: body in quirks mode); iw: with them, to scale the frame.
 function scrollToXY(x, y) {
+  window.justsaveArm?.();
   scrollTo({ left: x, top: y, behavior: 'instant' });
   const d = document.scrollingElement || document.documentElement;
   return { x: scrollX, y: scrollY, vw: d.clientWidth, vh: d.clientHeight, iw: innerWidth };
@@ -170,6 +185,7 @@ function scrollToXY(x, y) {
 // Sticky elements become relative (stay in their normal spot instead of repeating);
 // after the first frame, fixed elements (headers, chat buttons) are hidden so they appear once.
 function freeze(hideFixed) {
+  window.justsaveArm?.();
   for (const el of document.querySelectorAll('body *')) {
     const pos = getComputedStyle(el).position;
     if (pos !== 'sticky' && !(hideFixed && pos === 'fixed')) continue;
@@ -180,11 +196,6 @@ function freeze(hideFixed) {
 }
 
 function restore(x, y) {
-  document.getElementById('justsave-shield')?.remove();
-  for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
-  for (const el of document.querySelectorAll('[data-justsave]')) {
-    el.setAttribute('style', el.dataset.justsave);
-    delete el.dataset.justsave;
-  }
+  window.justsaveUndo?.();
   scrollTo({ left: x, top: y, behavior: 'instant' });
 }

@@ -48,13 +48,13 @@ assert.strictEqual(injected.filter(n => n === 'here').length, 1);
 // freeze(): a sticky element turned relative must also drop its insets, or top:80px shifts it for good.
 const src = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8').match(/function freeze[\s\S]*?\r?\n}\r?\n/)[0];
 const set = {}, el = { dataset: {}, getAttribute: () => null, style: { setProperty: (k, v) => { set[k] = v; } } };
-new Function('document', 'getComputedStyle', src + 'freeze(false);')({ querySelectorAll: () => [el] }, () => ({ position: 'sticky' }));
+new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')({}, { querySelectorAll: () => [el] }, () => ({ position: 'sticky' }));
 assert.strictEqual(set.position, 'relative');
 for (const k of ['top', 'right', 'bottom', 'left']) assert.strictEqual(set[k], 'auto', k);
 // Stitch canvas: when the area limit binds, independently rounding each side up must not exceed it (Chrome rejects the canvas).
 const dims = [];
 globalThis.OffscreenCanvas = class { constructor(w, h) { dims.push([w, h]); } getContext() { return { fillRect() {}, drawImage() {} }; } convertToBlob() { return {}; } };
-globalThis.createImageBitmap = async () => ({ width: 8297 }); // 5531 CSS px at 150%
+globalThis.createImageBitmap = async () => ({ width: 8297, close() {} }); // 5531 CSS px at 150%
 globalThis.fetch = async () => ({ blob: async () => ({}) });
 chrome.tabs = { get: async () => ({ active: true }), captureVisibleTab: async () => '', create() {} };
 chrome.scripting.executeScript = async ({ func }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: 0, vw: 5531, vh: 21715, iw: 5531 } : { x: 0, y: 0, w: 5531, h: 21715 } }];
@@ -89,4 +89,14 @@ chrome.tabs.create = async () => { throw new Error('window closed'); };
 onMsg({ mode: 'visible', tab: { id: 5, index: 0, windowId: 7, url: 'https://x.test/' } });
 await new Promise(r => setTimeout(r, 50));
 assert.strictEqual(files.size, 0, 'orphaned capture');
+// Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
+const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
+let timer, shield = { style: {}, remove() { shield.gone = true; } };
+const listeners = new Set(), page = { dataset: { justsave: 'color:red' }, setAttribute(k, v) { page.restored = v; } };
+const doc = { createElement: () => shield, documentElement: { append() {} }, getElementById: () => (shield.gone ? null : shield), querySelectorAll: () => ('justsave' in page.dataset ? [page] : []) };
+new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', 'scrollTo', fn('block') + 'block();')(
+  {}, doc, (t, f) => listeners.add(t), t => listeners.delete(t), f => (timer = f), () => { timer = null; }, () => {});
+assert(timer, 'block() arms no watchdog');
+timer();
+assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'watchdog left the page locked');
 console.log('ok');
