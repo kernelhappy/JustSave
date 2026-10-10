@@ -19,7 +19,7 @@ let png = rec?.blob; // replaced by Crop; Save, Copy and Print all use the curre
 if (png) {
   document.title = name;
   $('shot').src = URL.createObjectURL(png);
-  $('status').textContent = note ?? '';
+  $('note').textContent = note ?? ''; // own element: status messages from Save/Copy/Print/Crop never clear it
 } else {
   $('status').textContent = 'This capture is no longer available.';
   for (const el of document.querySelectorAll('header button, header select')) el.disabled = true;

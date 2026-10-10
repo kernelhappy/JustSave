@@ -9,7 +9,7 @@
   #zoom { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
   #logo { display: block; height: 32px; }
   button, select { padding: 6px 14px; font: inherit; cursor: pointer; }
-  #status { margin-left: 8px; color: light-dark(#555, #aaa); }
+  #note, #status { margin-left: 8px; color: light-dark(#555, #aaa); }
   #stage { position: relative; width: fit-content; margin: 16px auto; box-shadow: 0 1px 6px #0004; }
   #shot { display: block; pointer-events: none; } /* never the target: Chrome's image menu and drag-out would hand over the unredacted capture */
   #stage.cropping { overflow: clip; cursor: crosshair; touch-action: none; user-select: none; }
@@ -66,6 +66,7 @@
   <button id="crop" title="Drag over the capture to pick the area to keep (Enter applies, Esc cancels)">Crop</button>
   <button id="uncrop" hidden>Undo crop</button>
   <button id="markup" aria-pressed="false" title="Draw on the capture">Markup</button>
+  <span id="note"></span>
   <span id="status" role="status"></span>
   <span id="zoombar">
     <button data-zoom="fit" title="Whole capture in the window">Fit</button>

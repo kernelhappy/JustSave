@@ -374,6 +374,15 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   tools.onclick({ target: { closest: () => ({ dataset: { cmd: 'undo' } }) } });
   assert.ok(!log.includes('go'), 'Undo on an empty new text also undid the previous commit');
 }
+// Capture note ('Page too long…'): shown in its own element, which Save/Copy/Print/Crop status messages never overwrite.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const els = {}, $ = id => (els[id] ??= { textContent: '' });
+  new Function('$', 'document', 'URL', 'png', 'note', 'name', src.match(/if \(png\) \{[\s\S]*?\n\}/)[0])($, {}, { createObjectURL: () => '' }, {}, 'Page too long', 'x');
+  const at = Object.keys(els).find(k => els[k].textContent === 'Page too long');
+  assert.notStrictEqual(at, 'status', 'note shown in the transient status line');
+  assert.strictEqual(src.split(`$('${at}').textContent`).length, 2, 'something else overwrites the note');
+}
 // Popup: a click made while the script-access probe is still pending (page loading) must still capture, not be dropped.
 {
   const sent = [];
