@@ -10,8 +10,9 @@ const MAX_FRAMES = 100;
 // Tabs with a capture in progress: a second one would re-inject block() and interleave scrolling.
 const busy = new Set();
 // captureVisibleTab allows 2 calls/s per extension, not per tab: concurrent captures share one pacing.
-let nextShot = 0;
-const shotSlot = () => { const now = Date.now(), at = Math.max(now, nextShot); nextShot = at + 510; return sleep(at - now); };
+// Each slot opens 510ms after the previous one actually opened, so a late timer can't squeeze two calls together.
+let shots = Promise.resolve();
+const shotSlot = () => { const slot = shots; shots = slot.then(() => sleep(510)); return slot; };
 
 chrome.runtime.onMessage.addListener(({ mode, tab }) => {
   if (busy.has(tab.id)) return;

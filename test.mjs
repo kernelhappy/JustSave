@@ -117,13 +117,13 @@ assert.strictEqual(files.size, 0, 'orphaned capture');
   const at = [], cvt = chrome.tabs.captureVisibleTab, ex = chrome.scripting.executeScript;
   chrome.tabs.create = async () => ({ id: 98 });
   chrome.tabs.get = async id => ({ active: true, windowId: id === 11 ? 8 : 7, index: 0 });
-  chrome.tabs.captureVisibleTab = async () => { at.push(Date.now()); return ''; };
+  chrome.tabs.captureVisibleTab = async () => { at.push(performance.now()); return ''; };
   chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
   onMsg({ mode: 'full', tab: { id: 10, index: 0, windowId: 7, url: 'https://x.test/' } });
   onMsg({ mode: 'full', tab: { id: 11, index: 0, windowId: 8, url: 'https://x.test/' } });
   await new Promise(r => setTimeout(r, 2500));
   assert.strictEqual(at.length, 4);
-  at.sort((a, b) => a - b).slice(1).forEach((t, i) => assert(t - at[i] >= 500, 'captureVisibleTab calls ' + (t - at[i]) + 'ms apart'));
+  at.sort((a, b) => a - b).slice(1).forEach((t, i) => assert(t - at[i] >= 500, 'captureVisibleTab calls ' + (t - at[i]).toFixed(1) + 'ms apart'));
   chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex;
 }
 // Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
