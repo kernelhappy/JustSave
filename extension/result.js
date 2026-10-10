@@ -296,9 +296,17 @@ function setMarking(on) {
 }
 $('markup').onclick = () => setMarking(!marking());
 stage.dataset.tool = tool;
+// A press must not blur an open text editor: finishEdit would delete an empty new text before the click lands.
+$('tools').onmousedown = e => e.preventDefault();
 $('tools').onclick = ({ target }) => {
   if (gesture) return;
   const d = target.closest('button')?.dataset ?? {}, s = shapes[cur];
+  // Tool, Undo, Redo and Delete end an open edit first; on an empty new text that just cancels it, so Undo doesn't also undo the last commit.
+  if (editing != null && (d.tool || d.cmd)) {
+    const empty = !edit.value.trimEnd();
+    finishEdit();
+    if (empty && d.cmd) return render();
+  }
   if (d.tool) {
     tool = stage.dataset.tool = d.tool;
     cur = null;
@@ -312,7 +320,7 @@ $('tools').onclick = ({ target }) => {
     (k === 'size' || k === 'fill' ? style.pen : styleOf(s?.type ?? tool))[k] = v;
     if (s && k in s) {
       shapes[cur] = { ...s, [k]: v };
-      return commit();
+      return editing == null ? commit() : render(); // an open edit commits its style with its text
     }
   }
   render();

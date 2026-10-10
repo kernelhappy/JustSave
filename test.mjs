@@ -214,7 +214,7 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
   const style = { pen: { fill: false }, hl: {} }, shapes = [{ type: 'line', pts: [] }];
   const tools = {};
-  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', `let gesture = false, cur = 0, tool = 'select', dpr = 1; ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
+  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', `let gesture = false, cur = 0, editing = null, tool = 'select', dpr = 1; ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
     () => tools, shapes, style, () => style.pen, () => {}, () => {});
   const click = () => tools.onclick({ target: { closest: () => ({ dataset: { fill: '' } }) } });
   click();
@@ -286,5 +286,22 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   shot.onload();
   down();
   assert.strictEqual(downs, 1);
+}
+// Toolbar presses while a new text is open: the editor keeps focus (so blur can't delete the empty text first), a swatch styles the pending text, Undo only cancels it.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const style = { pen: { c: 'red', size: 20 }, text: { c: 'red' } }, shapes = [{ type: 'text', c: 'red', size: 20, text: '' }], tools = {}, log = [];
+  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', 'finishEdit', 'go', 'edit', 'log', `let gesture = false, cur = 0, editing = 0, tool = 'text', dpr = 1; const stage = { dataset: {} };
+    ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onmousedown = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
+    () => tools, shapes, style, () => style.text, () => log.push('commit'), () => {}, () => log.push('finish'), () => log.push('go'), { value: '' }, log);
+  let prevented = 0;
+  tools.onmousedown({ preventDefault: () => prevented++ });
+  assert.strictEqual(prevented, 1, 'toolbar press moved focus out of the editor');
+  tools.onclick({ target: { closest: () => ({ dataset: { c: 'blue' } }) } });
+  assert.strictEqual(shapes[0].c, 'blue', 'swatch did not style the pending text');
+  assert.ok(!log.includes('commit'), 'swatch committed an empty text');
+  log.length = 0;
+  tools.onclick({ target: { closest: () => ({ dataset: { cmd: 'undo' } }) } });
+  assert.ok(!log.includes('go'), 'Undo on an empty new text also undid the previous commit');
 }
 console.log('ok');
