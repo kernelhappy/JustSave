@@ -444,4 +444,13 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   await document.onclick({ target: { dataset: { mode: 'visible' } } });
   assert.deepStrictEqual(sent, [{ mode: 'visible', tab: { id: 7 } }]);
 }
+// Editing text in a light swatch (White/Yellow) must not sit on #edit's near-white CSS background.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const line = src.match(/Object\.assign\(edit\.style, .*/)[0];
+  const run = s => { const edit = { style: {} }; new Function('edit', 's', 'k', 'p', 'W', 'off', 'shot', 'LH', line)(edit, s, 1, 0, 100, { x: 0, y: 0 }, { naturalHeight: 100 }, 1.2); return edit.style; };
+  assert.strictEqual(run({ x: 0, y: 0, size: 16, c: '#ffffff' }).background, '#000c', 'white text gets a dark edit background');
+  assert.strictEqual(run({ x: 0, y: 0, size: 16, c: '#fdd835' }).background, '#000c', 'yellow text gets a dark edit background');
+  assert.notStrictEqual(run({ x: 0, y: 0, size: 16, c: '#e53935' }).background, '#000c', 'red keeps the default light background');
+}
 console.log('ok');

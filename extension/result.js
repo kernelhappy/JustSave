@@ -261,7 +261,7 @@ function render() {
   if (editing != null) {
     const s = shapes[editing], k = shot.clientWidth / W, p = s.tip ? PAD * s.size : 0;
     ink.querySelector(`[data-i="${editing}"]`).style.visibility = 'hidden';
-    Object.assign(edit.style, { left: (s.x + p - off.x) / W * 100 + '%', top: (s.y + p - off.y) / shot.naturalHeight * 100 + '%', font: `600 ${s.size * k}px/${LH} system-ui, sans-serif`, color: s.tip ? '#111' : s.c });
+    Object.assign(edit.style, { left: (s.x + p - off.x) / W * 100 + '%', top: (s.y + p - off.y) / shot.naturalHeight * 100 + '%', font: `600 ${s.size * k}px/${LH} system-ui, sans-serif`, color: s.tip ? '#111' : s.c, background: s.tip || !['#ffffff', '#fdd835'].includes(s.c) ? '' : '#000c' });
   }
   const now = s ?? styleOf(tool);
   for (const b of $('tools').querySelectorAll('button')) {
