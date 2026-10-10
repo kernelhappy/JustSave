@@ -82,8 +82,10 @@ const ACTIONS = {
     p.src = url;
     await p.decode();
     document.body.classList.add('burned');
-    addEventListener('afterprint', () => { document.body.classList.remove('burned'); p.removeAttribute('src'); URL.revokeObjectURL(url); }, { once: true });
+    // print() blocks until the dialog closes, and returns at once when blocked by policy or throttled (no afterprint),
+    // so clean up on return: a lingering .burned would make a later menu Print use this stale image.
     print();
+    document.body.classList.remove('burned'); p.removeAttribute('src'); URL.revokeObjectURL(url);
     return '';
   },
 };

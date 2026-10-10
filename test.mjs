@@ -386,6 +386,17 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   assert.notStrictEqual(at, 'status', 'note shown in the transient status line');
   assert.strictEqual(src.split(`$('${at}').textContent`).length, 2, 'something else overwrites the note');
 }
+// Print: if print() returns without firing afterprint (policy-blocked, throttled), .burned must not linger for menu Print.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const cls = new Set(), p = { decode: async () => {}, removeAttribute() {} };
+  const act = new Function('$', 'encode', 'document', 'URL', 'addEventListener', 'print',
+    `return {${src.match(/async print\(\) \{[\s\S]*?\n  \},/)[0]}}`)(
+    () => p, async () => ({}), { body: { classList: { add: c => cls.add(c), remove: c => cls.delete(c) } } },
+    { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, () => {}, () => {});
+  await act.print();
+  assert.ok(!cls.has('burned'), 'body.burned left set after a print() that never fired afterprint');
+}
 // Popup: a click made while the script-access probe is still pending (page loading) must still capture, not be dropped.
 {
   const sent = [];
