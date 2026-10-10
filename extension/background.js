@@ -182,6 +182,7 @@ function block() {
 
 function here() {
   const d = document.scrollingElement || document.documentElement; // body in quirks mode
+  if (visualViewport?.scale > 1) return { x: scrollX, y: scrollY }; // pinch zoom: no page size, so a plain shot of what's on screen
   return { x: scrollX, y: scrollY, w: d.scrollWidth, h: d.scrollHeight };
 }
 
@@ -201,6 +202,17 @@ async function scrollThrough() {
 // vw/vh: the viewport without scrollbars (scrollingElement: body in quirks mode); iw: with them, to scale the frame.
 function scrollToXY(x, y) {
   window.justsaveArm?.();
+  const v = visualViewport;
+  if (v?.scale > 1) {
+    // Pinch zoom: the shot is the magnified visual viewport, which scrollTo can't move past the layout viewport's edges;
+    // scrollIntoView moves both. Report the visual viewport in page CSS px (iw: frame width at this scale).
+    const mark = document.createElement('div');
+    mark.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:1px;height:1px`;
+    document.documentElement.append(mark);
+    mark.scrollIntoView({ block: 'start', inline: 'start', behavior: 'instant' });
+    mark.remove();
+    return { x: v.pageLeft, y: v.pageTop, vw: v.width, vh: v.height, iw: innerWidth / v.scale };
+  }
   scrollTo({ left: x, top: y, behavior: 'instant' });
   const d = document.scrollingElement || document.documentElement;
   return { x: scrollX, y: scrollY, vw: d.clientWidth, vh: d.clientHeight, iw: innerWidth };
