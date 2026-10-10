@@ -193,4 +193,16 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   apply();
   assert.ok(get() > 0, `fit scale ${get()} in a short window`);
 }
+// Zooming the browser keeps the picked width and text size in screen pixels, and the pressed-state match exact.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const style = { pen: { w: 4, size: 20 }, hl: { w: 8 } }, g = { devicePixelRatio: 1 };
+  const [sync, get] = new Function('style', 'g', `let dpr = 1; ${src.match(/function syncDpr\(\) \{[\s\S]*?\n\}/)[0].replaceAll('devicePixelRatio', 'g.devicePixelRatio')} return [syncDpr, () => dpr];`)(style, g);
+  for (const r of [1.1, 1.25, 2.5, 0.9, 1]) {
+    g.devicePixelRatio = r;
+    sync();
+    assert.equal(get(), r);
+    assert.ok(style.pen.w === 4 * r && style.pen.size === 20 * r && style.hl.w === 8 * r, `at ${r}: ${JSON.stringify(style)}`);
+  }
+}
 console.log('ok');

@@ -119,7 +119,8 @@ function applyZoom() {
   $('zoom').textContent = Math.round(scale * 100) + '%';
   render();
 }
-shot.onload = onresize = applyZoom;
+shot.onload = applyZoom;
+onresize = () => { syncDpr(); applyZoom(); };
 const zoomBy = f => { zoom = Math.min(8, Math.max(0.05, scale * f)); applyZoom(); };
 $('zoombar').onclick = ({ target }) => {
   const z = target.dataset.zoom;
@@ -208,7 +209,14 @@ function cropDown(e) {
 
 // Markup: shapes live in pixels of the uncropped capture (see markup.js); off is where the current image starts in them.
 // Widths and text sizes are picked in screen pixels and stored in capture pixels.
-const dpr = devicePixelRatio;
+let dpr = devicePixelRatio;
+// Browser zoom or another monitor changes devicePixelRatio; keep the picked width and text size the same on screen.
+// Picks are whole screen pixels, so rounding keeps d.w * dpr === style.w exact for the pressed state.
+function syncDpr() {
+  if (devicePixelRatio === dpr) return;
+  for (const s of [style.pen, style.hl]) for (const k of ['w', 'size']) if (k in s) s[k] = Math.round(s[k] / dpr) * devicePixelRatio;
+  dpr = devicePixelRatio;
+}
 let shapes = [], hist = ['[]'], step = 0, off = { x: 0, y: 0 }, tool = 'select', cur = null, editing = null, lastDown = 0, gesture = false;
 const style = { pen: { c: '#e53935', w: 4 * dpr, size: 20 * dpr, fill: false }, hl: { c: '#fdd835', w: 4 * dpr } };
 const styleOf = type => type === 'hl' ? style.hl : style.pen;
