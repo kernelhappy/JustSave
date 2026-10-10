@@ -17,6 +17,7 @@ A Chrome extension that captures the visible area or the entire page, then saves
   - **Full page (fast)**: one shot through Chrome's DevTools protocol. It's faster and has no seams, but full-height sections can stretch and embeds can come out blank.
 - **PNG, JPG or PDF**, with High, Medium and Low quality for JPG and PDF. PDFs are split into Letter pages, cut at the least busy row so text isn't sliced in half.
 - **Zoom** the preview (Fit, Fit width, − / +) and **Crop** it to the part you want before saving.
+- **Markup** the preview: highlighter, pen, line, arrow, rectangle, ellipse, cloud, text and callout. A filled box redacts: it is burned into the saved, copied or printed image, so the pixels underneath are gone.
 - **Save…** (Chrome reopens the folder you used last), **Copy** (as PNG) or **Print**.
 - Remembers your last format and quality. Files are named like `261009104405 - www.example.com`.
 
@@ -26,6 +27,7 @@ A Chrome extension that captures the visible area or the entire page, then saves
 - **Full page** stops after 100 screens. The result tab says so when it happens.
 - Very large captures are scaled down to fit Chrome's canvas limits (32,767 px per side, 268 megapixels).
 - Chrome doesn't let extensions run on its own pages, the Chrome Web Store, or `file://` pages (unless file access is allowed). There, only **Visible area** can work.
+- Markup is burned in by **Save**, **Copy**, the **Print** button and Ctrl+P. Printing from Chrome's menu (⋮ → Print) prints the live page with the markup as a removable vector layer, so don't rely on it for redaction.
 
 ## Install
 
@@ -50,7 +52,7 @@ JustSave makes no network requests and has no analytics. Captures stay in your b
 The extension lives in `extension/`. Load it unpacked from there.
 
 ```
-node test.mjs     # PDF writer and page-break tests
+node test.mjs     # PDF writer, page-break and markup tests
 ```
 
 Release:
