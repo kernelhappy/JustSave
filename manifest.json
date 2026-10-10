@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "JustSave",
-  "version": "1.0",
-  "description": "Save the entire page as a PNG and a PDF, exactly as it displays.",
-  "permissions": ["debugger", "downloads"],
+  "version": "1.1",
+  "description": "Save the entire page as a PNG or a paginated PDF, exactly as it displays.",
+  "permissions": ["activeTab", "scripting", "downloads"],
   "background": { "service_worker": "background.js", "type": "module" },
-  "action": { "default_title": "Save full page as PNG + PDF" }
+  "action": { "default_title": "Save full page", "default_popup": "popup.html" }
 }
