@@ -322,6 +322,15 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   h({ metaKey: true, key: 'z', target: { tagName: 'BODY' }, preventDefault: () => {} });
   h({ metaKey: true, shiftKey: true, key: 'z', target: { tagName: 'BODY' }, preventDefault: () => {} });
   assert.deepStrictEqual(steps, [-1, 1], 'Cmd+Z / Cmd+Shift+Z did not undo / redo');
+  // Esc during IME composition belongs to the IME; it must not end the edit.
+  let fin = 0;
+  const edit = {};
+  const m = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    () => {}, () => fin++, () => false, () => true, () => {}, edit, () => {}, () => {}, { dataset: {} });
+  m({ key: 'Escape', isComposing: true, target: edit });
+  assert.strictEqual(fin, 0, 'Esc during IME composition ended the edit');
+  m({ key: 'Escape', target: edit });
+  assert.strictEqual(fin, 1);
 }
 // Fit in a window shorter than the header must not go to a zero or negative scale.
 {

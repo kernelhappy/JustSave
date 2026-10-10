@@ -473,7 +473,7 @@ onkeydown = e => {
     return;
   }
   if (e.target === edit) {
-    if (e.key === 'Escape') finishEdit();
+    if (e.key === 'Escape' && !e.isComposing) finishEdit();
     return;
   }
   const k = e.key.toLowerCase();
