@@ -170,4 +170,16 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   click();
   assert.strictEqual(style.pen.fill, false, 'second Fill click turns the default fill off');
 }
+// Delete/Backspace on the Format or Quality <select> must not delete the selected shape.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  let removed = 0;
+  const f = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    () => {}, () => {}, () => false, () => true, () => { removed++; }, {}, () => {}, () => {}, { dataset: {} });
+  f({ key: 'Delete', target: { tagName: 'SELECT' } });
+  f({ key: 'Backspace', target: { tagName: 'SELECT' } });
+  assert.strictEqual(removed, 0, 'Delete on a <select> removed the shape');
+  f({ key: 'Delete', target: { tagName: 'BODY' } });
+  assert.strictEqual(removed, 1);
+}
 console.log('ok');

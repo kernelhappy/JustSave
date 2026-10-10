@@ -440,7 +440,7 @@ onkeydown = e => {
   if (e.ctrlKey && (k === 'z' || k === 'y')) {
     e.preventDefault();
     go(k === 'y' || e.shiftKey ? 1 : -1);
-  } else if (marking() && (e.key === 'Delete' || e.key === 'Backspace')) remove();
+  } else if (marking() && (e.key === 'Delete' || e.key === 'Backspace') && e.target.tagName !== 'SELECT') remove();
   else if (marking() && e.key === 'Escape') {
     cur = null;
     tool = stage.dataset.tool = 'select';
