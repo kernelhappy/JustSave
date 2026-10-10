@@ -14,15 +14,33 @@
   #shot { display: block; }
   #stage.cropping { cursor: crosshair; touch-action: none; user-select: none; }
   #stage.cropping #shot { pointer-events: none; }
-  #sel { position: absolute; outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; cursor: move; }
-  #sel i { position: absolute; width: 10px; height: 10px; background: #fff; border: 1px solid #000; }
-  #sel [data-h*=n] { top: 0; } #sel [data-h*=s] { bottom: 0; } #sel [data-h*=w] { left: 0; } #sel [data-h*=e] { right: 0; }
-  #sel [data-h=n], #sel [data-h=s] { left: calc(50% - 6px); cursor: ns-resize; }
-  #sel [data-h=e], #sel [data-h=w] { top: calc(50% - 6px); cursor: ew-resize; }
-  #sel [data-h=nw], #sel [data-h=se] { cursor: nwse-resize; }
-  #sel [data-h=ne], #sel [data-h=sw] { cursor: nesw-resize; }
+  #stage.marking { cursor: crosshair; touch-action: none; user-select: none; }
+  #stage.marking[data-tool=select] { cursor: default; }
+  #stage.marking[data-tool=text] { cursor: text; }
+  #ink { position: absolute; inset: 0; pointer-events: none; }
+  #ink svg { display: block; width: 100%; height: 100%; }
+  #stage.marking #ink { pointer-events: auto; }
+  .box { position: absolute; }
+  .box i { position: absolute; width: 10px; height: 10px; background: #fff; border: 1px solid #000; cursor: move; }
+  .box [data-h*=n] { top: 0; } .box [data-h*=s] { bottom: 0; } .box [data-h*=w] { left: 0; } .box [data-h*=e] { right: 0; }
+  .box [data-h=n], .box [data-h=s] { left: calc(50% - 6px); cursor: ns-resize; }
+  .box [data-h=e], .box [data-h=w] { top: calc(50% - 6px); cursor: ew-resize; }
+  .box [data-h=nw], .box [data-h=se] { cursor: nwse-resize; }
+  .box [data-h=ne], .box [data-h=sw] { cursor: nesw-resize; }
+  #sel { outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; cursor: move; }
+  #pick { outline: 1px dashed #1e88e5; pointer-events: none; }
+  #pick.ends { outline: none; }
+  #pick i { pointer-events: auto; }
+  #edit { position: absolute; margin: 0; padding: 0; border: 0; outline: 1px dashed #1e88e5; background: #fffc; resize: none; overflow: hidden; white-space: pre; field-sizing: content; min-width: 2ch; }
+  #tools { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  #tools[hidden] { display: none; }
+  #tools button { padding: 4px 10px; min-width: 34px; }
+  #tools .sep { width: 12px; }
+  #tools [data-c] { width: 26px; min-width: 0; height: 26px; padding: 0; border-radius: 50%; border: 1px solid #0006; background: var(--c); }
+  #tools [data-w] i { display: block; width: 18px; background: currentColor; }
+  header [aria-pressed=true] { outline: 2px solid #1e88e5; outline-offset: 1px; }
   @media print {
-    header, #sel { display: none; }
+    header, #sel, #pick, #edit { display: none; }
     body { background: none; }
     #stage { margin: 0; box-shadow: none; }
     #shot { width: auto !important; max-width: 100%; }
@@ -45,6 +63,7 @@
   <button data-act="print">Print</button>
   <button id="crop" title="Drag over the capture to pick the area to keep (Enter applies, Esc cancels)">Crop</button>
   <button id="uncrop" hidden>Undo crop</button>
+  <button id="markup" aria-pressed="false" title="Draw on the capture">Markup</button>
   <span id="status" role="status"></span>
   <span id="zoombar">
     <button data-zoom="fit" title="Whole capture in the window">Fit</button>
@@ -57,6 +76,37 @@
     <source srcset="assets/logo-dark.png" media="(prefers-color-scheme: dark)">
     <img id="logo" src="assets/logo-light.png" alt="JustSave">
   </picture>
+  <div id="tools" hidden>
+    <button data-tool="select" title="Select: drag to move, handles resize, double-click text to edit, Del deletes">↖</button>
+    <button data-tool="hl" title="Highlighter (Shift: straight line)">▬</button>
+    <button data-tool="pen" title="Pen (Shift: straight line)">✎</button>
+    <button data-tool="line" title="Line">╱</button>
+    <button data-tool="arrow" title="Arrow">→</button>
+    <button data-tool="rect" title="Rectangle (Shift: square)">▭</button>
+    <button data-tool="ellipse" title="Ellipse (Shift: circle)">◯</button>
+    <button data-tool="cloud" title="Cloud">☁</button>
+    <button data-tool="text" title="Text: click to place, click away or Esc to finish">T</button>
+    <button data-tool="callout" title="Callout: drag from the point to where the text goes">💬</button>
+    <span class="sep"></span>
+    <button data-c="#e53935" style="--c:#e53935" aria-label="Red"></button>
+    <button data-c="#fb8c00" style="--c:#fb8c00" aria-label="Orange"></button>
+    <button data-c="#fdd835" style="--c:#fdd835" aria-label="Yellow"></button>
+    <button data-c="#43a047" style="--c:#43a047" aria-label="Green"></button>
+    <button data-c="#1e88e5" style="--c:#1e88e5" aria-label="Blue"></button>
+    <button data-c="#212121" style="--c:#212121" aria-label="Black"></button>
+    <span class="sep"></span>
+    <button data-w="2" aria-label="Thin"><i style="height:2px"></i></button>
+    <button data-w="4" aria-label="Medium"><i style="height:4px"></i></button>
+    <button data-w="8" aria-label="Thick"><i style="height:8px"></i></button>
+    <span class="sep"></span>
+    <button data-size="14" aria-label="Small text" style="font-size:11px">A</button>
+    <button data-size="20" aria-label="Medium text" style="font-size:14px">A</button>
+    <button data-size="32" aria-label="Large text" style="font-size:18px">A</button>
+    <span class="sep"></span>
+    <button data-cmd="undo" title="Undo (Ctrl+Z)">↶</button>
+    <button data-cmd="redo" title="Redo (Ctrl+Y)">↷</button>
+    <button data-cmd="del" title="Delete (Del)">🗑</button>
+  </div>
 </header>
-<div id="stage"><img id="shot" alt="Captured page"><div id="sel" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div></div>
+<div id="stage"><img id="shot" alt="Captured page"><div id="ink"></div><div id="sel" class="box" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div><div id="pick" class="box" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i><i data-h="0"></i><i data-h="1"></i><i data-h="tip"></i></div><textarea id="edit" hidden spellcheck="false"></textarea></div>
 <script type="module" src="result.js"></script>

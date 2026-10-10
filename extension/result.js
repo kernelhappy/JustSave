@@ -1,5 +1,6 @@
 import { idb } from './idb.js';
 import { canvasToPdf } from './pdf.js';
+import { toSvg, bounds, handles, move, resize, dragEdges, LH, PAD } from './markup.js';
 
 const TYPES = {
   png: { description: 'PNG image', mime: 'image/png' },
@@ -14,7 +15,7 @@ const id = location.hash.slice(1);
 const rec = await idb('readonly', s => s.get(id)).catch(console.error);
 if (rec) idb('readwrite', s => s.delete(id));
 const { name, note } = rec ?? {};
-let png = rec?.blob; // replaced by Crop; Save, Download, Copy and Print all use the current one
+let png = rec?.blob; // replaced by Crop; Save, Download, Copy and Print all use the current one, plus the markup
 if (png) {
   document.title = name;
   $('shot').src = URL.createObjectURL(png);
@@ -34,11 +35,17 @@ for (const el of [$('format'), $('quality')]) {
 showQuality();
 
 async function encode(fmt) {
-  if (fmt === 'png') return png;
+  if (fmt === 'png' && !shapes.length) return png;
   const quality = +$('quality').value;
-  const img = await createImageBitmap(png), c = new OffscreenCanvas(img.width, img.height);
-  c.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0);
-  return fmt === 'jpg' ? c.convertToBlob({ type: 'image/jpeg', quality }) : canvasToPdf(c, quality);
+  const img = await createImageBitmap(png), c = new OffscreenCanvas(img.width, img.height), ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  if (shapes.length) {
+    const ink = new Image(), url = URL.createObjectURL(new Blob([toSvg(shapes, { ...off, w: img.width, h: img.height })], { type: 'image/svg+xml' }));
+    ink.src = url;
+    await ink.decode().finally(() => URL.revokeObjectURL(url));
+    ctx.drawImage(ink, 0, 0);
+  }
+  return fmt === 'png' ? c.convertToBlob({ type: 'image/png' }) : fmt === 'jpg' ? c.convertToBlob({ type: 'image/jpeg', quality }) : canvasToPdf(c, quality);
 }
 
 const ACTIONS = {
@@ -66,9 +73,9 @@ const ACTIONS = {
     await chrome.downloads.download({ url: URL.createObjectURL(await encode(fmt)), filename: `${name}.${fmt}` });
     return 'Downloaded';
   },
-  // The clipboard only takes PNG images.
+  // The clipboard only takes PNG images. Handing it the promise keeps the click's activation while the markup is drawn in.
   async copy() {
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': encode('png') })]);
     return 'Copied as PNG';
   },
   print() {
@@ -104,6 +111,7 @@ function applyZoom() {
   scale = zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom;
   shot.style.width = w * scale + 'px';
   $('zoom').textContent = Math.round(scale * 100) + '%';
+  render();
 }
 shot.onload = onresize = applyZoom;
 $('zoombar').onclick = ({ target }) => {
@@ -113,11 +121,20 @@ $('zoombar').onclick = ({ target }) => {
   applyZoom();
 };
 
+const stage = $('stage'), sel = $('sel'), pickBox = $('pick'), edit = $('edit'), ink = $('ink');
+const cropping = () => stage.classList.contains('cropping'), marking = () => stage.classList.contains('marking');
+// Pointer position in pixels of the current image; the rect is re-read on every move so scrolling mid-drag still lines up.
+const at = ev => { const r = shot.getBoundingClientRect(), f = shot.naturalWidth / r.width; return [(ev.clientX - r.left) * f, (ev.clientY - r.top) * f]; };
+// Percentages keep boxes in place when the zoom changes. o: where the current image starts in b's coordinates.
+function place(el, b, o = { x: 0, y: 0 }) {
+  const W = shot.naturalWidth, H = shot.naturalHeight;
+  Object.assign(el.style, { left: (b.l - o.x) / W * 100 + '%', top: (b.t - o.y) / H * 100 + '%', width: (b.r - b.l) / W * 100 + '%', height: (b.b - b.t) / H * 100 + '%' });
+}
+
 // Crop: Crop starts a selection. Drag to draw a box, then drag its handles to resize it or its inside to move it.
 // Enter or Apply crop keeps it, Esc cancels. Undo crop goes back to the full capture.
 let original, box; // box edges in capture pixels: { l, t, r, b }
-const stage = $('stage'), sel = $('sel'), clamp = (v, max) => Math.min(max, Math.max(0, v));
-const cropping = () => stage.classList.contains('cropping');
+const clamp = (v, max) => Math.min(max, Math.max(0, v));
 function setShot(blob) {
   png = blob;
   URL.revokeObjectURL(shot.src);
@@ -138,6 +155,7 @@ async function applyCrop() {
       const img = await createImageBitmap(png, x, y, w, h), c = new OffscreenCanvas(w, h);
       c.getContext('2d').drawImage(img, 0, 0);
       original ??= png;
+      off = { x: off.x + x, y: off.y + y };
       setShot(await c.convertToBlob({ type: 'image/png' }));
     }
   }
@@ -145,24 +163,14 @@ async function applyCrop() {
 }
 $('crop').onclick = () => {
   if (cropping()) return applyCrop();
+  setMarking(false);
   stage.classList.add('cropping');
   $('crop').textContent = 'Apply crop';
   $('status').textContent = 'Drag over the capture, then adjust with the handles. Enter applies, Esc cancels.';
 };
-$('uncrop').onclick = () => { const o = original; original = null; setShot(o); };
-onkeydown = e => {
-  if (!cropping()) return;
-  if (e.key === 'Escape') endCrop();
-  if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }
-};
-// Positions in capture pixels; the rect is re-read on every move so scrolling mid-drag still lines up.
-stage.onpointerdown = e => {
-  if (!cropping() || e.button) return;
-  e.preventDefault();
-  stage.setPointerCapture(e.pointerId);
-  const W = shot.naturalWidth, H = shot.naturalHeight;
-  const at = ev => { const r = shot.getBoundingClientRect(), f = W / r.width; return [(ev.clientX - r.left) * f, (ev.clientY - r.top) * f]; };
-  const [x0, y0] = at(e);
+$('uncrop').onclick = () => { const o = original; original = null; off = { x: 0, y: 0 }; setShot(o); };
+function cropDown(e) {
+  const W = shot.naturalWidth, H = shot.naturalHeight, [x0, y0] = at(e);
   // A handle drags its edges ('nw', 'e', ...), the box's inside moves it, anywhere else draws a new box from its 'se' corner.
   const fresh = !e.target.dataset.h && e.target !== sel, edges = fresh ? 'se' : e.target.dataset.h;
   const from = fresh ? { l: clamp(x0, W), t: clamp(y0, H), r: clamp(x0, W), b: clamp(y0, H) } : { ...box };
@@ -171,14 +179,227 @@ stage.onpointerdown = e => {
     if (!edges) {
       const mx = Math.min(W - from.r, Math.max(-from.l, dx)), my = Math.min(H - from.b, Math.max(-from.t, dy));
       box = { l: from.l + mx, t: from.t + my, r: from.r + mx, b: from.b + my };
-    } else {
-      const l = edges.includes('w') ? clamp(from.l + dx, W) : from.l, r = edges.includes('e') ? clamp(from.r + dx, W) : from.r;
-      const t = edges.includes('n') ? clamp(from.t + dy, H) : from.t, b = edges.includes('s') ? clamp(from.b + dy, H) : from.b;
-      box = { l: Math.min(l, r), r: Math.max(l, r), t: Math.min(t, b), b: Math.max(t, b) }; // dragging past the far edge flips
-    }
-    // Percentages keep the box in place when the zoom changes.
-    Object.assign(sel.style, { left: box.l / W * 100 + '%', top: box.t / H * 100 + '%', width: (box.r - box.l) / W * 100 + '%', height: (box.b - box.t) / H * 100 + '%' });
+    } else box = dragEdges(from, edges, dx, dy, { l: 0, t: 0, r: W, b: H });
+    place(sel, box);
     sel.hidden = false;
   };
   stage.onpointerup = () => { stage.onpointermove = null; };
+}
+
+// Markup: shapes live in pixels of the uncropped capture (see markup.js); off is where the current image starts in them.
+// Widths and text sizes are picked in screen pixels and stored in capture pixels.
+const dpr = devicePixelRatio;
+let shapes = [], hist = ['[]'], step = 0, off = { x: 0, y: 0 }, tool = 'select', cur = null, editing = null, lastDown = 0;
+const style = { pen: { c: '#e53935', w: 4 * dpr, size: 20 * dpr }, hl: { c: '#fdd835', w: 4 * dpr } };
+const styleOf = type => type === 'hl' ? style.hl : style.pen;
+const measure = new OffscreenCanvas(1, 1).getContext('2d');
+measure.font = '600 100px system-ui, sans-serif';
+
+function render() {
+  const W = shot.naturalWidth;
+  if (!W) return;
+  ink.innerHTML = toSvg(shapes, { ...off, w: W, h: shot.naturalHeight }, 12 * W / shot.clientWidth);
+  const s = shapes[cur];
+  pickBox.hidden = !s || editing != null;
+  if (!pickBox.hidden) {
+    const b = bounds(s), hs = handles(s), pts = { 0: s.pts?.[0], 1: s.pts?.[1], tip: s.tip };
+    place(pickBox, b, off);
+    pickBox.classList.toggle('ends', hs[0] === '0');
+    for (const i of pickBox.children) {
+      const h = i.dataset.h, p = pts[h];
+      i.hidden = !hs.includes(h);
+      if (p) Object.assign(i.style, { left: `calc(${(p[0] - b.l) / (b.r - b.l || 1) * 100}% - 6px)`, top: `calc(${(p[1] - b.t) / (b.b - b.t || 1) * 100}% - 6px)` });
+    }
+  }
+  if (editing != null) {
+    const s = shapes[editing], k = shot.clientWidth / W, p = s.tip ? PAD * s.size : 0;
+    ink.querySelector(`[data-i="${editing}"]`).style.visibility = 'hidden';
+    Object.assign(edit.style, { left: (s.x + p - off.x) / W * 100 + '%', top: (s.y + p - off.y) / shot.naturalHeight * 100 + '%', font: `600 ${s.size * k}px/${LH} system-ui, sans-serif`, color: s.tip ? '#111' : s.c });
+  }
+  const now = s ?? styleOf(tool);
+  for (const b of $('tools').querySelectorAll('button')) {
+    const d = b.dataset;
+    if (d.cmd) b.disabled = d.cmd === 'undo' ? !step : d.cmd === 'redo' ? step === hist.length - 1 : !s;
+    else b.setAttribute('aria-pressed', d.tool ? d.tool === tool : d.c ? d.c === now.c : d.w ? d.w * dpr === now.w : d.size * dpr === now.size);
+  }
+}
+function commit() {
+  const j = JSON.stringify(shapes);
+  if (j !== hist[step]) {
+    hist.length = ++step;
+    hist.push(j);
+  }
+  render();
+}
+function go(d) {
+  if (!hist[step + d]) return;
+  step += d;
+  shapes = JSON.parse(hist[step]);
+  cur = null;
+  render();
+}
+function remove() {
+  if (cur == null) return;
+  shapes.splice(cur, 1);
+  cur = null;
+  commit();
+}
+function setMarking(on) {
+  finishEdit();
+  if (on && cropping()) endCrop();
+  stage.classList.toggle('marking', on);
+  $('tools').hidden = !on;
+  $('markup').setAttribute('aria-pressed', on);
+  if (!on) cur = null;
+  applyZoom(); // the second toolbar row changes the room left for Fit
+}
+$('markup').onclick = () => setMarking(!marking());
+stage.dataset.tool = tool;
+$('tools').onclick = ({ target }) => {
+  const d = target.closest('button')?.dataset ?? {}, s = shapes[cur];
+  if (d.tool) {
+    tool = stage.dataset.tool = d.tool;
+    cur = null;
+  } else if (d.cmd) ({ undo: () => go(-1), redo: () => go(1), del: remove })[d.cmd]();
+  else {
+    // A style button sets the style for new shapes of that kind and restyles the selected shape.
+    const k = d.c ? 'c' : d.w ? 'w' : d.size ? 'size' : null;
+    if (!k) return;
+    const v = k === 'c' ? d.c : d[k] * dpr;
+    styleOf(s?.type ?? tool)[k] = v;
+    if (s && k in s) {
+      shapes[cur] = { ...s, [k]: v };
+      return commit();
+    }
+  }
+  render();
 };
+
+function startEdit(i) {
+  editing = cur = i;
+  edit.value = shapes[i].text;
+  edit.hidden = false;
+  render();
+  edit.focus();
+}
+// Click away or Esc keeps the text; emptied text removes its shape.
+function finishEdit() {
+  if (editing == null) return;
+  const i = editing, text = edit.value.trimEnd();
+  editing = null;
+  edit.hidden = true;
+  if (text) shapes[i] = { ...shapes[i], text, em: Math.max(...text.split('\n').map(l => measure.measureText(l).width)) / 100 };
+  else {
+    shapes.splice(i, 1);
+    cur = null;
+  }
+  commit();
+}
+edit.onblur = finishEdit;
+
+function newShape(p) {
+  const { c, w, size } = styleOf(tool);
+  if (tool === 'pen' || tool === 'hl') return { type: tool, c, w, pts: [p] };
+  if (tool === 'line' || tool === 'arrow') return { type: tool, c, w, pts: [p, p] };
+  if (tool === 'callout') return { type: tool, c, w, size, x: p[0], y: p[1], text: '', em: 0, tip: p };
+  return { type: tool, c, w, l: p[0], t: p[1], r: p[0], b: p[1] };
+}
+const atInk = ev => { const [x, y] = at(ev); return [x + off.x, y + off.y]; };
+// A handle of the selected shape resizes it; otherwise Select picks and moves, Text places or edits on release, and the rest draw.
+function markDown(e) {
+  const p0 = atInk(e), h = e.target.closest('#pick') && e.target.dataset.h, hit = e.target.closest('#ink [data-i]'), hi = hit && +hit.dataset.i;
+  let i = cur, upd;
+  if (h) {
+    const from = shapes[i];
+    upd = (ev, dx, dy) => resize(from, h, dx, dy);
+  } else if (tool === 'select') {
+    // Double-click is detected here: the re-render below replaces the pressed element, so Chrome sends no dblclick.
+    const again = hit && hi === cur && e.timeStamp - lastDown < 500;
+    lastDown = e.timeStamp;
+    cur = hit ? hi : null;
+    render();
+    if (!hit) return;
+    if (again && shapes[hi].size) {
+      stage.onpointermove = null;
+      stage.onpointerup = () => { stage.onpointerup = null; startEdit(hi); };
+      return;
+    }
+    const from = shapes[i = cur];
+    upd = (ev, dx, dy) => move(from, dx, dy);
+  } else if (tool === 'text') {
+    stage.onpointermove = null;
+    // On release, so the press's own focus handling can't blur the new editor.
+    stage.onpointerup = () => {
+      stage.onpointerup = null;
+      if (hit && shapes[hi].size) return startEdit(hi);
+      const { c, size } = styleOf(tool);
+      startEdit(shapes.push({ type: 'text', c, size, x: p0[0], y: p0[1] - size * LH / 2, text: '', em: 0 }) - 1);
+    };
+    return;
+  } else {
+    cur = null;
+    i = shapes.push(newShape(p0)) - 1;
+    const from = shapes[i];
+    upd = tool === 'pen' || tool === 'hl' ? (ev, dx, dy, p) => {
+      const s = shapes[i], q = s.pts.at(-1);
+      if (ev.shiftKey) s.pts = [p0, p];
+      else if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 2) s.pts.push(p);
+      return s;
+    } : tool === 'line' || tool === 'arrow' ? (ev, dx, dy, p) => ({ ...from, pts: [p0, p] })
+      : tool === 'callout' ? (ev, dx, dy, p) => ({ ...from, x: p[0], y: p[1] })
+      : (ev, dx, dy) => {
+        if (ev.shiftKey) {
+          const m = Math.max(Math.abs(dx), Math.abs(dy));
+          dx = Math.sign(dx) * m || m;
+          dy = Math.sign(dy) * m || m;
+        }
+        return { ...from, l: Math.min(p0[0], p0[0] + dx), r: Math.max(p0[0], p0[0] + dx), t: Math.min(p0[1], p0[1] + dy), b: Math.max(p0[1], p0[1] + dy) };
+      };
+  }
+  stage.onpointermove = ev => {
+    const p = atInk(ev);
+    shapes[i] = upd(ev, p[0] - p0[0], p[1] - p0[1], p);
+    render();
+  };
+  stage.onpointerup = () => {
+    stage.onpointermove = stage.onpointerup = null;
+    if (h || tool === 'select') return commit();
+    const b = bounds(shapes[i]);
+    if (!['pen', 'hl', 'callout'].includes(tool) && b.r - b.l < 3 && b.b - b.t < 3) {
+      shapes.splice(i, 1); // a click, not a drag
+      return render();
+    }
+    cur = i;
+    if (tool === 'callout') startEdit(i);
+    else commit();
+  };
+}
+
+stage.onpointerdown = e => {
+  if (e.button || !(cropping() || marking()) || e.target === edit) return;
+  if (editing != null) return finishEdit();
+  e.preventDefault();
+  stage.setPointerCapture(e.pointerId);
+  (cropping() ? cropDown : markDown)(e);
+};
+onkeydown = e => {
+  if (cropping()) {
+    if (e.key === 'Escape') endCrop();
+    if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }
+    return;
+  }
+  if (e.target === edit) {
+    if (e.key === 'Escape') finishEdit();
+    return;
+  }
+  const k = e.key.toLowerCase();
+  if (e.ctrlKey && (k === 'z' || k === 'y')) {
+    e.preventDefault();
+    go(k === 'y' || e.shiftKey ? 1 : -1);
+  } else if (marking() && (e.key === 'Delete' || e.key === 'Backspace')) remove();
+  else if (marking() && e.key === 'Escape') {
+    cur = null;
+    render();
+  }
+};
+
