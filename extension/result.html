@@ -4,16 +4,22 @@
 <style>
   :root { color-scheme: light dark; }
   body { margin: 0; font: 14px system-ui, sans-serif; background: light-dark(#e8e8e8, #18191c); }
-  header { position: sticky; top: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: light-dark(#fff, #202124); box-shadow: 0 1px 4px #0003; }
-  picture { margin-left: auto; }
+  header { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: light-dark(#fff, #202124); box-shadow: 0 1px 4px #0003; }
+  #zoombar { margin-left: auto; display: flex; gap: 4px; align-items: center; }
+  #zoom { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
   #logo { display: block; height: 32px; }
   button, select { padding: 6px 14px; font: inherit; cursor: pointer; }
   #status { margin-left: 8px; color: light-dark(#555, #aaa); }
-  #shot { display: block; max-width: calc(100% - 32px); margin: 16px auto; box-shadow: 0 1px 6px #0004; }
+  #stage { position: relative; width: fit-content; margin: 16px auto; overflow: clip; box-shadow: 0 1px 6px #0004; }
+  #shot { display: block; }
+  #stage.cropping { cursor: crosshair; touch-action: none; user-select: none; }
+  #stage.cropping #shot { pointer-events: none; }
+  #sel { position: absolute; outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; pointer-events: none; }
   @media print {
-    header { display: none; }
+    header, #sel { display: none; }
     body { background: none; }
-    #shot { max-width: 100%; margin: 0; box-shadow: none; }
+    #stage { margin: 0; box-shadow: none; }
+    #shot { width: auto !important; max-width: 100%; }
   }
 </style>
 <header>
@@ -31,11 +37,20 @@
   <button data-act="download">Download</button>
   <button data-act="copy">Copy</button>
   <button data-act="print">Print</button>
+  <button id="crop" title="Drag over the capture to pick the area to keep (Enter applies, Esc cancels)">Crop</button>
+  <button id="uncrop" hidden>Undo crop</button>
   <span id="status" role="status"></span>
+  <span id="zoombar">
+    <button data-zoom="fit" title="Whole capture in the window">Fit</button>
+    <button data-zoom="width" title="Fit the width; scroll down">Fit width</button>
+    <button data-zoom="out" aria-label="Zoom out">−</button>
+    <span id="zoom"></span>
+    <button data-zoom="in" aria-label="Zoom in">+</button>
+  </span>
   <picture>
     <source srcset="assets/logo-dark.png" media="(prefers-color-scheme: dark)">
     <img id="logo" src="assets/logo-light.png" alt="JustSave">
   </picture>
 </header>
-<img id="shot" alt="Captured page">
+<div id="stage"><img id="shot" alt="Captured page"><div id="sel" hidden></div></div>
 <script type="module" src="result.js"></script>

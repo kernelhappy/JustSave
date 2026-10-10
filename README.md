@@ -16,6 +16,7 @@ A Chrome extension that captures the visible area or the entire page, then saves
   - **Full page**: scrolls the page and stitches the frames. Lazy-loaded content gets loaded first, sticky headers appear once instead of in every frame, and input is blocked while it works.
   - **Full page (fast)**: one shot through Chrome's DevTools protocol. It's faster and has no seams, but full-height sections can stretch and embeds can come out blank.
 - **PNG, JPG or PDF**, with High, Medium and Low quality for JPG and PDF. PDFs are split into Letter pages, cut at the least busy row so text isn't sliced in half.
+- **Zoom** the preview (Fit, Fit width, − / +) and **Crop** it to the part you want before saving.
 - **Save…** (Chrome reopens the folder you used last), **Download**, **Copy** (as PNG) or **Print**.
 - Remembers your last format and quality. Files are named like `261009104405 - www.example.com`.
 

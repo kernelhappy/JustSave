@@ -13,7 +13,8 @@ const $ = id => document.getElementById(id);
 const id = location.hash.slice(1);
 const rec = await idb('readonly', s => s.get(id)).catch(console.error);
 if (rec) idb('readwrite', s => s.delete(id));
-const { blob: png, name, note } = rec ?? {};
+const { name, note } = rec ?? {};
+let png = rec?.blob; // replaced by Crop; Save, Download, Copy and Print all use the current one
 if (png) {
   document.title = name;
   $('shot').src = URL.createObjectURL(png);
@@ -90,4 +91,86 @@ document.onclick = async ({ target }) => {
   } finally {
     busy = false;
   }
+};
+
+// Zoom: 'fit' (whole capture), 'width', or a factor where 1 = actual size (one capture pixel per screen pixel).
+// The fit modes never enlarge past actual size.
+const shot = $('shot'), header = document.querySelector('header');
+let zoom = 'width', scale = 1;
+function applyZoom() {
+  const w = shot.naturalWidth / devicePixelRatio, h = shot.naturalHeight / devicePixelRatio;
+  if (!w) return;
+  const fitW = Math.min(1, (document.documentElement.clientWidth - 32) / w);
+  scale = zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom;
+  shot.style.width = w * scale + 'px';
+  $('zoom').textContent = Math.round(scale * 100) + '%';
+}
+shot.onload = onresize = applyZoom;
+$('zoombar').onclick = ({ target }) => {
+  const z = target.dataset.zoom;
+  if (!z) return;
+  zoom = z === 'in' || z === 'out' ? Math.min(8, Math.max(0.05, scale * (z === 'in' ? 1.25 : 0.8))) : z;
+  applyZoom();
+};
+
+// Crop: Crop starts a selection, a drag picks the area to keep, Enter or Apply crop keeps it, Esc cancels.
+// Undo crop goes back to the full capture. ponytail: no handles to adjust the box; drag again to redo it.
+let original, box;
+const stage = $('stage'), sel = $('sel'), clamp = (v, max) => Math.min(max, Math.max(0, v));
+function setShot(blob) {
+  png = blob;
+  URL.revokeObjectURL(shot.src);
+  shot.src = URL.createObjectURL(blob);
+  $('uncrop').hidden = !original;
+}
+function endCrop() {
+  stage.classList.remove('cropping');
+  sel.hidden = true;
+  box = null;
+  $('crop').textContent = 'Crop';
+  $('status').textContent = '';
+}
+async function applyCrop() {
+  const W = shot.naturalWidth, H = shot.naturalHeight;
+  if (box) {
+    const x = Math.floor(box.x), y = Math.floor(box.y), w = Math.min(W - x, Math.round(box.w)), h = Math.min(H - y, Math.round(box.h));
+    if (w > 0 && h > 0) {
+      const img = await createImageBitmap(png, x, y, w, h), c = new OffscreenCanvas(w, h);
+      c.getContext('2d').drawImage(img, 0, 0);
+      original ??= png;
+      setShot(await c.convertToBlob({ type: 'image/png' }));
+    }
+  }
+  endCrop();
+}
+$('crop').onclick = () => {
+  if (stage.classList.contains('cropping')) return applyCrop();
+  stage.classList.add('cropping');
+  $('crop').textContent = 'Apply crop';
+  $('status').textContent = 'Drag over the capture to pick the area to keep. Esc cancels.';
+};
+$('uncrop').onclick = () => { setShot(original); original = null; $('uncrop').hidden = true; };
+onkeydown = e => {
+  if (!stage.classList.contains('cropping')) return;
+  if (e.key === 'Escape') endCrop();
+  if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }
+};
+// Box in capture pixels; the rect is re-read on every move so scrolling mid-drag still lines up.
+stage.onpointerdown = e => {
+  if (!stage.classList.contains('cropping') || e.button) return;
+  e.preventDefault();
+  stage.setPointerCapture(e.pointerId);
+  const at = ev => {
+    const r = shot.getBoundingClientRect(), f = shot.naturalWidth / r.width;
+    return [clamp((ev.clientX - r.left) * f, shot.naturalWidth), clamp((ev.clientY - r.top) * f, shot.naturalHeight)];
+  };
+  const [x0, y0] = at(e);
+  stage.onpointermove = ev => {
+    const [x1, y1] = at(ev), W = shot.naturalWidth, H = shot.naturalHeight;
+    box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    // Percentages keep the box in place when the zoom changes.
+    Object.assign(sel.style, { left: box.x / W * 100 + '%', top: box.y / H * 100 + '%', width: box.w / W * 100 + '%', height: box.h / H * 100 + '%' });
+    sel.hidden = false;
+  };
+  stage.onpointerup = () => { stage.onpointermove = null; };
 };
