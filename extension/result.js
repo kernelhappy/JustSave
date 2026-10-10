@@ -317,7 +317,8 @@ function finishEdit() {
   }
   commit();
 }
-edit.onblur = finishEdit;
+// A window blur (Alt+Tab) keeps the textarea focused for when the window returns; only a real blur ends the edit.
+edit.onblur = () => document.activeElement === edit || finishEdit();
 
 function newShape(p) {
   const { c, w, size } = styleOf(tool);
