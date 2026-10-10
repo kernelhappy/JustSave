@@ -346,8 +346,14 @@ function finishEdit() {
   const i = editing, text = edit.value.trimEnd();
   editing = null;
   edit.hidden = true;
+  const was = shapes[i];
   if (text) shapes[i] = { ...shapes[i], text, em: text.split('\n').reduce((m, l) => Math.max(m, measure.measureText(l).width), 0) / 100 };
-  else {
+  if (text && was.tip) {
+    // A callout left of or above its point keeps the edge facing the point, so new text grows away from it rather than over it.
+    const a = bounds(was), b = bounds(shapes[i]);
+    if (a.l + a.r < 2 * was.tip[0]) shapes[i].x += a.r - b.r;
+    if (a.t + a.b < 2 * was.tip[1]) shapes[i].y += a.b - b.b;
+  } else if (!text) {
     shapes.splice(i, 1);
     cur = null;
   }

@@ -478,4 +478,12 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   new Function('shapes', 'i', 'text', 'measure', line)(shapes, 0, 'ab\n' + '\n'.repeat(150000), measure);
   assert.strictEqual(shapes[0].em, 0.2, 'finishEdit measures a 150k-line text');
 }
+// A callout dragged up-left of its point grows away from the point, not back over it.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/function finishEdit[\s\S]*?\n}/)[0];
+  const shapes = [{ type: 'callout', size: 10, x: 60, y: 60, text: '', em: 0, tip: [100, 100] }], measure = { measureText: l => ({ width: l.length * 60 }) };
+  new Function('shapes', 'measure', 'bounds', 'commit', 'edit', `let editing = 0, cur = 0; ${src}; finishEdit();`)(shapes, measure, bounds, () => {}, { value: 'abcdefgh\nx' });
+  const b = bounds(shapes[0]);
+  assert.ok(b.r <= 100 && b.b <= 100, 'callout box covers its own point');
+}
 console.log('ok');
