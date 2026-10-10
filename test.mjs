@@ -469,4 +469,13 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   assert.strictEqual(run({ x: 0, y: 0, size: 16, c: '#fdd835' }).background, '#000c', 'yellow text gets a dark edit background');
   assert.notStrictEqual(run({ x: 0, y: 0, size: 16, c: '#e53935' }).background, '#000c', 'red keeps the default light background');
 }
+// A huge paste (150k lines) or pen stroke must not overflow the spread-args limit.
+{
+  const big = Array.from({ length: 150000 }, (_, i) => [i, 1 - i]);
+  assert.deepStrictEqual(bounds({ pts: big }), { l: 0, t: -149998, r: 149999, b: 1 }, 'bounds of a 150k-point stroke');
+  const line = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/if \(text\) shapes\[i\] = .*/)[0];
+  const shapes = [{}], measure = { measureText: l => ({ width: l.length * 10 }) };
+  new Function('shapes', 'i', 'text', 'measure', line)(shapes, 0, 'ab\n' + '\n'.repeat(150000), measure);
+  assert.strictEqual(shapes[0].em, 0.2, 'finishEdit measures a 150k-line text');
+}
 console.log('ok');

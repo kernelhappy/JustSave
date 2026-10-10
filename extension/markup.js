@@ -22,7 +22,8 @@ export function dragEdges(from, edges, dx, dy, lim = NO) {
 export function bounds(s) {
   if (s.pts) {
     const xs = s.pts.map(p => p[0]), ys = s.pts.map(p => p[1]);
-    return { l: Math.min(...xs), t: Math.min(...ys), r: Math.max(...xs), b: Math.max(...ys) };
+    const lo = a => a.reduce((m, v) => Math.min(m, v), Infinity), hi = a => a.reduce((m, v) => Math.max(m, v), -Infinity);
+    return { l: lo(xs), t: lo(ys), r: hi(xs), b: hi(ys) };
   }
   if (s.size) {
     const p = s.type === 'callout' ? 2 * PAD : 0;

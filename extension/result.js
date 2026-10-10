@@ -346,7 +346,7 @@ function finishEdit() {
   const i = editing, text = edit.value.trimEnd();
   editing = null;
   edit.hidden = true;
-  if (text) shapes[i] = { ...shapes[i], text, em: Math.max(...text.split('\n').map(l => measure.measureText(l).width)) / 100 };
+  if (text) shapes[i] = { ...shapes[i], text, em: text.split('\n').reduce((m, l) => Math.max(m, measure.measureText(l).width), 0) / 100 };
   else {
     shapes.splice(i, 1);
     cur = null;
