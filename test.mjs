@@ -324,6 +324,20 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
     () => label, shot, { offsetHeight: 90 }, { documentElement: { clientWidth: 1000 } }, 100, 1, () => {});
   apply();
   assert.ok(get() > 0, `fit scale ${get()} in a short window`);
+  // Fit with a vertical scrollbar that goes away once the capture shrinks: size for the width without it.
+  const wide = { naturalWidth: 2000, naturalHeight: 400, style: {} };
+  const doc = { documentElement: { get clientWidth() { return parseFloat(wide.style.width) > 1500 ? 983 : 1000; } } };
+  wide.style.width = '3000px'; // zoomed in: tall page with a scrollbar
+  const [apply2, get2] = new Function('$', 'shot', 'header', 'document', 'innerHeight', 'devicePixelRatio', 'render', `let zoom = 'fit', scale = 1; ${src.match(/function applyZoom\(\) \{[\s\S]*?\n\}/)[0]} return [applyZoom, () => scale];`)(
+    () => label, wide, { offsetHeight: 90 }, doc, 900, 1, () => {});
+  apply2();
+  assert.equal(get2(), (1000 - 32) / 2000, 'Fit kept the width of a scrollbar that went away');
+  // A header that changes height (status text, Quality select) re-runs the Fit math, not only the page padding.
+  let ro, zoomed = 0;
+  new Function('ResizeObserver', 'document', 'header', 'applyZoom', src.match(/new ResizeObserver\(.*/)[0])(
+    class { constructor(f) { ro = f; } observe() {} }, { body: { style: {} } }, { offsetHeight: 120 }, () => zoomed++);
+  ro();
+  assert.equal(zoomed, 1, 'header resize did not re-run applyZoom');
 }
 // Zooming the browser keeps the picked width and text size in screen pixels, and the pressed-state match exact.
 {

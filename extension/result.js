@@ -114,15 +114,17 @@ document.onclick = ({ target }) => run(target.dataset.act);
 // The fit modes never enlarge past actual size.
 const shot = $('shot'), header = document.querySelector('header');
 // The header is fixed, not sticky, so it stays put when a zoomed-in capture scrolls sideways; pad the page by its height.
-new ResizeObserver(() => { document.body.style.paddingTop = header.offsetHeight + 'px'; }).observe(header);
+new ResizeObserver(() => { document.body.style.paddingTop = header.offsetHeight + 'px'; applyZoom(); }).observe(header); // status text or the Quality select can wrap it
 let zoom = 'fit', scale = 1;
 function applyZoom() {
   const w = shot.naturalWidth / devicePixelRatio, h = shot.naturalHeight / devicePixelRatio;
   if (!w) return;
-  const fitW = Math.min(1, (document.documentElement.clientWidth - 32) / w);
+  const cw = document.documentElement.clientWidth, fitW = Math.min(1, (cw - 32) / w);
   // A window smaller than the chrome would give a zero or negative fit; floor it at the zoom-out limit.
   scale = Math.max(0.05, zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom);
   shot.style.width = w * scale + 'px';
+  // Fit can drop the old layout's vertical scrollbar, which fires no resize: measure again without it (only on widening, so it can't loop).
+  if (zoom === 'fit' && document.documentElement.clientWidth > cw) return applyZoom();
   $('zoom').textContent = Math.round(scale * 100) + '%';
   render();
 }
