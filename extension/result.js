@@ -371,6 +371,7 @@ const atInk = ev => { const [x, y] = at(ev); return [x + off.x, y + off.y]; };
 // A handle of the selected shape resizes it; otherwise Select picks and moves, Text places or edits on release, and the rest draw.
 function markDown(e) {
   const p0 = atInk(e), h = e.target.closest('#pick') && e.target.dataset.h, hit = e.target.closest('#ink [data-i]'), hi = hit && +hit.dataset.i;
+  const k = shot.naturalWidth / shot.clientWidth; // capture px per screen px, so drag thresholds don't change with zoom
   let i = cur, upd;
   if (h) {
     const from = shapes[i];
@@ -410,7 +411,7 @@ function markDown(e) {
     upd = tool === 'pen' || tool === 'hl' ? (ev, dx, dy, p) => {
       const s = shapes[i], q = s.pts.at(-1);
       if (ev.shiftKey) s.pts = [p0, snap(p0, p)];
-      else if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 2) s.pts.push(p);
+      else if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 2 * k) s.pts.push(p);
       return s;
     } : tool === 'line' || tool === 'arrow' ? (ev, dx, dy, p) => ({ ...from, pts: [p0, ev.shiftKey ? snap(p0, p) : p] })
       : tool === 'callout' ? (ev, dx, dy, p) => ({ ...from, x: p[0], y: p[1] })
@@ -432,7 +433,7 @@ function markDown(e) {
     stage.onpointermove = stage.onpointerup = null;
     if (h || tool === 'select') return commit();
     const b = bounds(shapes[i]);
-    if (!['pen', 'hl', 'callout'].includes(tool) && b.r - b.l < 3 && b.b - b.t < 3) {
+    if (!['pen', 'hl', 'callout'].includes(tool) && b.r - b.l < 3 * k && b.b - b.t < 3 * k) {
       shapes.splice(i, 1); // a click, not a drag
       return render();
     }
