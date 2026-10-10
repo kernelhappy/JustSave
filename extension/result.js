@@ -75,7 +75,14 @@ const ACTIONS = {
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': encode('png') })]);
     return 'Copied as PNG';
   },
-  print() {
+  // Prints the encoded image, so the markup is burned in (a filled box must not leave the pixels under it in a PDF).
+  // ponytail: Chrome's own menu Print can't wait for the encode and still prints the live #shot + #ink pair.
+  async print() {
+    const url = URL.createObjectURL(await encode('png')), p = $('printshot');
+    p.src = url;
+    await p.decode();
+    document.body.classList.add('burned');
+    addEventListener('afterprint', () => { document.body.classList.remove('burned'); p.removeAttribute('src'); URL.revokeObjectURL(url); }, { once: true });
     print();
     return '';
   },
@@ -83,8 +90,8 @@ const ACTIONS = {
 
 // One action at a time: a second Save would hit "File picker already active", and encodes are heavy.
 let busy = false;
-document.onclick = async ({ target }) => {
-  const act = ACTIONS[target.dataset.act];
+async function run(key) {
+  const act = ACTIONS[key];
   if (!act || !png || busy) return;
   busy = true;
   $('status').textContent = 'Working…';
@@ -95,7 +102,8 @@ document.onclick = async ({ target }) => {
   } finally {
     busy = false;
   }
-};
+}
+document.onclick = ({ target }) => run(target.dataset.act);
 
 // Zoom: 'fit' (whole capture), 'width', or a factor where 1 = actual size (one capture pixel per screen pixel).
 // The fit modes never enlarge past actual size.
@@ -400,6 +408,11 @@ stage.onpointerdown = e => {
   (cropping() ? cropDown : markDown)(e);
 };
 onkeydown = e => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+    e.preventDefault();
+    finishEdit();
+    return run('print');
+  }
   if (cropping()) {
     if (e.key === 'Escape') endCrop();
     if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }

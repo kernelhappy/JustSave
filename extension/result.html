@@ -40,11 +40,14 @@
   #tools [data-c] { width: 26px; min-width: 0; height: 26px; padding: 0; border-radius: 50%; border: 1px solid light-dark(#0006, #fff8); background: var(--c); }
   #tools [data-w] i { display: block; width: 18px; background: currentColor; }
   header [aria-pressed=true] { outline: 2px solid #1e88e5; outline-offset: 1px; }
+  #printshot { display: none; }
   @media print {
     header, #sel, #pick, #edit { display: none; }
     body { background: none; }
     #stage { margin: 0; box-shadow: none; }
-    #shot { width: auto !important; max-width: 100%; }
+    #shot, #printshot { width: auto !important; max-width: 100%; }
+    .burned #stage { display: none; }
+    .burned #printshot { display: block; }
   }
 </style>
 <header>
@@ -112,4 +115,5 @@
   </div>
 </header>
 <div id="stage"><img id="shot" alt="Captured page"><div id="ink"></div><div id="sel" class="box" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div><div id="pick" class="box" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i><i data-h="0"></i><i data-h="1"></i><i data-h="tip"></i></div><textarea id="edit" hidden spellcheck="false"></textarea></div>
+<img id="printshot" alt="">
 <script type="module" src="result.js"></script>
