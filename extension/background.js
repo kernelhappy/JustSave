@@ -34,6 +34,8 @@ async function capture(tab, mode) {
     // while we scroll (eBay, feeds) are ignored instead of chased.
     // Visible area survives pages that block scripts as a plain screenshot (scrollbars included); a failed injection can also return null.
     start = (await inPage(full ? scrollThrough : here).catch(e => { if (full) throw e; })) ?? start;
+    // Fast shot: back to the top and let scroll handlers settle, or hide-on-scroll headers show their scrolled-down state.
+    if (mode === 'fast') { await inPage(scrollToXY, 0, 0); await sleep(600); }
     const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
       : full || start.w ? await stitch(tab, full, start, inPage)
       : { blob: await (await fetch(await shotSlot().then(() => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })))).blob() };

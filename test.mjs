@@ -79,12 +79,17 @@ assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
 }
 // Fast capture: output is CSS size x devicePixelRatio x clip.scale, and must fit the canvas limits too (result.js re-encodes it).
 let clip;
+const fastLog = [], ex0 = chrome.scripting.executeScript;
+chrome.scripting.executeScript = async o => { fastLog.push([o.func.name, ...(o.args ?? [])].join()); return ex0(o); };
 chrome.debugger = { attach: async () => {}, detach: async () => {}, sendCommand: async (t, m, p) =>
   m === 'Page.getLayoutMetrics' ? { cssContentSize: { width: 1200, height: 20000 } }
   : m === 'Runtime.evaluate' ? { result: { value: 2 } }
-  : (clip = p.clip, { data: '' }) };
+  : (clip = p.clip, fastLog.push('shot'), { data: '' }) };
 onMsg({ mode: 'fast', tab: { id: 3, index: 0, url: 'https://x.test/' } });
-await new Promise(r => setTimeout(r, 10));
+await new Promise(r => setTimeout(r, 700));
+chrome.scripting.executeScript = ex0;
+// ...taken from the top, not where scrollThrough left the page (hide-on-scroll headers would show scrolled-down).
+assert(fastLog.indexOf('scrollToXY,0,0') > fastLog.indexOf('scrollThrough') && fastLog.indexOf('scrollToXY,0,0') < fastLog.indexOf('shot'), 'fast shot taken scrolled down: ' + fastLog);
 const out = [clip.width * 2 * clip.scale, clip.height * 2 * clip.scale];
 assert(out[0] <= 32767 && out[1] <= 32767 && out[0] * out[1] <= 268435456, 'fast capture ' + out);
 // Result tab handoff: open it in the source tab's current window (create rejects an opener in another window),
