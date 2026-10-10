@@ -314,4 +314,20 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   tools.onclick({ target: { closest: () => ({ dataset: { cmd: 'undo' } }) } });
   assert.ok(!log.includes('go'), 'Undo on an empty new text also undid the previous commit');
 }
+// Popup: a click made while the script-access probe is still pending (page loading) must still capture, not be dropped.
+{
+  const sent = [];
+  globalThis.chrome = {
+    tabs: { query: async () => [{ id: 7 }] },
+    scripting: { executeScript: () => new Promise(() => {}) }, // probe waits for document_idle
+    runtime: { sendMessage: async m => { sent.push(m); } },
+  };
+  globalThis.document = { querySelectorAll: () => [], getElementById: () => ({}) };
+  globalThis.window = { close() {} };
+  import('./extension/popup.js');
+  await new Promise(r => setTimeout(r, 10));
+  assert.strictEqual(typeof document.onclick, 'function', 'popup click handler waits for the probe');
+  await document.onclick({ target: { dataset: { mode: 'visible' } } });
+  assert.deepStrictEqual(sent, [{ mode: 'visible', tab: { id: 7 } }]);
+}
 console.log('ok');
