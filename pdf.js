@@ -46,7 +46,7 @@ export function quietRow(data, width, rows) {
 }
 
 // Paginate a canvas to Letter: each page is a band of it, cut at the least busy row in its bottom 20%.
-export async function canvasToPdf(canvas) {
+export async function canvasToPdf(canvas, quality = 0.92) {
   const { width: W, height: H } = canvas, ctx = canvas.getContext('2d', { willReadFrequently: true });
   const pageH = Math.round(W * (PAGE_H - 2 * MARGIN) / (PAGE_W - 2 * MARGIN)), band = Math.round(pageH * 0.2);
   const pages = [];
@@ -55,7 +55,7 @@ export async function canvasToPdf(canvas) {
     if (end < H) end += quietRow(ctx.getImageData(0, end - band, W, band).data, W, band) - band;
     const page = new OffscreenCanvas(W, end - top);
     page.getContext('2d').drawImage(canvas, 0, top, W, end - top, 0, 0, W, end - top);
-    pages.push({ jpg: bin(await (await page.convertToBlob({ type: 'image/jpeg', quality: 0.92 })).arrayBuffer()), w: W, h: end - top });
+    pages.push({ jpg: bin(await (await page.convertToBlob({ type: 'image/jpeg', quality })).arrayBuffer()), w: W, h: end - top });
     top = end;
   }
   return new Blob([Uint8Array.from(imagesToPdf(pages), c => c.charCodeAt(0))], { type: 'application/pdf' });

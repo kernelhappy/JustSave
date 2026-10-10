@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "JustSave",
-  "version": "1.4",
+  "version": "1.5",
   "description": "Capture the visible area or the entire page, then save it as PNG, JPG or PDF, copy it, or print it.",
-  "permissions": ["activeTab", "scripting", "downloads"],
+  "permissions": ["activeTab", "scripting", "downloads", "debugger"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_title": "Save full page", "default_popup": "popup.html" }
 }

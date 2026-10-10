@@ -20,11 +20,21 @@ if (png) {
   $('shot').src = URL.createObjectURL(png);
 }
 
+// Format and quality start as last picked; quality only applies to JPG and PDF.
+const showQuality = () => { $('quality').hidden = $('format').value === 'png'; };
+for (const el of [$('format'), $('quality')]) {
+  if (localStorage[el.id]) el.value = localStorage[el.id];
+  if (el.selectedIndex < 0) el.selectedIndex = 0;
+  el.onchange = () => { localStorage[el.id] = el.value; showQuality(); };
+}
+showQuality();
+
 async function encode(fmt) {
   if (fmt === 'png') return png;
+  const quality = +$('quality').value;
   const img = await createImageBitmap(png), c = new OffscreenCanvas(img.width, img.height);
   c.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0);
-  return fmt === 'jpg' ? c.convertToBlob({ type: 'image/jpeg', quality: 0.92 }) : canvasToPdf(c);
+  return fmt === 'jpg' ? c.convertToBlob({ type: 'image/jpeg', quality }) : canvasToPdf(c, quality);
 }
 
 const ACTIONS = {

@@ -5,14 +5,13 @@ const MAX_CANVAS = 32767, MAX_AREA = 268435456;
 // Backstop for very large pages.
 const MAX_FRAMES = 100;
 
-chrome.runtime.onMessage.addListener(({ mode, tab }) => { capture(tab, mode === 'full'); });
+chrome.runtime.onMessage.addListener(({ mode, tab }) => { capture(tab, mode); });
 
-// Capture the visible area or the full page, then open it in a result tab (save, download, copy, print).
-async function capture(tab, full) {
+// mode: 'visible' | 'full' (stitched) | 'fast' (debugger). Opens the capture in a result tab (save, download, copy, print).
+async function capture(tab, mode) {
+  const full = mode !== 'visible';
   const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text });
   const inPage = async (func, ...args) => (await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args }))[0].result;
-  // captureVisibleTab grabs whatever tab is showing, so a tab switch would stitch in the wrong page.
-  const checkActive = async () => { if (!(await chrome.tabs.get(tab.id)).active) throw new Error('Tab switched during capture'); };
   const name = fileName(tab);
   badge('...');
   let start = { x: 0, y: 0 };
@@ -21,50 +20,8 @@ async function capture(tab, full) {
     // Page size at click time is the capture size, so infinite-scroll results loaded
     // while we scroll (eBay, feeds) are ignored instead of chased.
     start = await inPage(full ? scrollThrough : here);
-    const x0 = full ? 0 : start.x, y0 = full ? 0 : start.y;
-    const x1 = full ? start.w : x0 + 1, y1 = full ? start.h : y0 + 1;
-
-    // Capture what's on screen one viewport at a time, left to right, then down;
-    // no viewport resizing, so the page lays out as displayed.
-    const frames = [];
-    for (let y = y0, more = true; more && y < y1; ) {
-      more = false;
-      let nextY = y;
-      for (let x = x0; x < x1 && frames.length < MAX_FRAMES; ) {
-        const m = await inPage(scrollToXY, x, y);
-        if (frames.some(f => f.x === m.x && f.y === m.y)) break; // scroll clamped at the edge: nothing new
-        if (full) {
-          await inPage(freeze, frames.length > 0);
-          await sleep(600); // let content settle; captureVisibleTab is also rate-limited to 2/sec
-        }
-        await checkActive();
-        const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-        await checkActive();
-        frames.push({ ...m, img: await createImageBitmap(await (await fetch(shot)).blob()) });
-        more = true;
-        // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.
-        x = m.x + m.vw - 1;
-        nextY = m.y + m.vh - 1;
-      }
-      y = nextY;
-    }
-
-    // Stitch. Frame pixels per CSS px (devicePixelRatio x zoom); crop off both scrollbars.
-    const s = frames[0].img.width / frames[0].iw;
-    const cssW = Math.min(start.w, Math.max(...frames.map(f => f.x + f.vw))) - x0;
-    const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
-    const k = Math.min(1, MAX_CANVAS / (cssW * s), MAX_CANVAS / (cssH * s), Math.sqrt(MAX_AREA / (cssW * s * cssH * s)));
-    const px = v => Math.round(v * s * k);
-    const canvas = new OffscreenCanvas(px(cssW), px(cssH)), ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Crop to whole device pixels: at fractional scaling (125%, 150%) a partial row would blend in the scrollbar.
-    for (const f of frames) {
-      const sw = Math.floor(f.vw * s), sh = Math.floor(f.vh * s);
-      ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
-    }
-
-    const id = crypto.randomUUID(), blob = await canvas.convertToBlob({ type: 'image/png' });
+    const blob = mode === 'fast' ? await debuggerShot(tab.id) : await stitch(tab, full, start, inPage);
+    const id = crypto.randomUUID();
     await idb('readwrite', st => st.put({ blob, name }, id));
     await chrome.tabs.create({ url: 'result.html#' + id, index: tab.index + 1, openerTabId: tab.id });
     badge('');
@@ -73,6 +30,73 @@ async function capture(tab, full) {
     badge('ERR');
   } finally {
     inPage(restore, start.x, start.y).catch(() => {});
+  }
+}
+
+// Scroll the page viewport by viewport (left to right, then down), screenshot each, and stitch them;
+// no viewport resizing, so the page lays out as displayed.
+async function stitch(tab, full, start, inPage) {
+  // captureVisibleTab grabs whatever tab is showing, so a tab switch would stitch in the wrong page.
+  const checkActive = async () => { if (!(await chrome.tabs.get(tab.id)).active) throw new Error('Tab switched during capture'); };
+  const x0 = full ? 0 : start.x, y0 = full ? 0 : start.y;
+  const x1 = full ? start.w : x0 + 1, y1 = full ? start.h : y0 + 1;
+
+  const frames = [];
+  for (let y = y0, more = true; more && y < y1; ) {
+    more = false;
+    let nextY = y;
+    for (let x = x0; x < x1 && frames.length < MAX_FRAMES; ) {
+      const m = await inPage(scrollToXY, x, y);
+      if (frames.some(f => f.x === m.x && f.y === m.y)) break; // scroll clamped at the edge: nothing new
+      if (full) {
+        await inPage(freeze, frames.length > 0);
+        await sleep(600); // let content settle; captureVisibleTab is also rate-limited to 2/sec
+      }
+      await checkActive();
+      const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      await checkActive();
+      frames.push({ ...m, img: await createImageBitmap(await (await fetch(shot)).blob()) });
+      more = true;
+      // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.
+      x = m.x + m.vw - 1;
+      nextY = m.y + m.vh - 1;
+    }
+    y = nextY;
+  }
+
+  // Stitch. Frame pixels per CSS px (devicePixelRatio x zoom); crop off both scrollbars.
+  const s = frames[0].img.width / frames[0].iw;
+  const cssW = Math.min(start.w, Math.max(...frames.map(f => f.x + f.vw))) - x0;
+  const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
+  const k = Math.min(1, MAX_CANVAS / (cssW * s), MAX_CANVAS / (cssH * s), Math.sqrt(MAX_AREA / (cssW * s * cssH * s)));
+  const px = v => Math.round(v * s * k);
+  const canvas = new OffscreenCanvas(px(cssW), px(cssH)), ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Crop to whole device pixels: at fractional scaling (125%, 150%) a partial row would blend in the scrollbar.
+  for (const f of frames) {
+    const sw = Math.floor(f.vw * s), sh = Math.floor(f.vh * s);
+    ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
+  }
+  return canvas.convertToBlob({ type: 'image/png' });
+}
+
+// One shot of the whole page via the DevTools protocol, like DevTools' "Capture full size screenshot".
+// Fast and seamless, but Chrome resizes the viewport to the page: full-height sections stretch,
+// and iframes outside the original viewport can come out blank.
+async function debuggerShot(tabId) {
+  const target = { tabId }, send = (method, params) => chrome.debugger.sendCommand(target, method, params);
+  await chrome.debugger.attach(target, '1.3');
+  try {
+    const { cssContentSize: { width, height } } = await send('Page.getLayoutMetrics');
+    // Has hung once (eBay) and worked on retry; give up rather than leave the page locked.
+    const { data } = await Promise.race([
+      send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } }),
+      sleep(30000).then(() => { throw new Error('Fast capture timed out'); }),
+    ]);
+    return (await fetch('data:image/png;base64,' + data)).blob();
+  } finally {
+    await chrome.debugger.detach(target);
   }
 }
 
