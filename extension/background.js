@@ -13,6 +13,17 @@ const busy = new Set();
 // Each slot opens 510ms after the previous one actually opened, so a late timer can't squeeze two calls together.
 let shots = Promise.resolve();
 const shotSlot = () => { const slot = shots; shots = slot.then(() => sleep(510)); return slot; };
+// A fast shot's debugger shows the "started debugging" infobar in every window, resizing their viewports,
+// so it never overlaps a stitched capture (frames would mix two layouts). Fast shots wait for running
+// stitched captures; a stitched capture waits out fast shots, then holds new ones off until released.
+let debugging = Promise.resolve(); // never rejects
+const stitching = new Set();
+async function holdOffDebugger() {
+  for (let d; d !== debugging; ) await (d = debugging);
+  let done; const p = new Promise(r => { done = r; });
+  stitching.add(p);
+  return () => { stitching.delete(p); done(); };
+}
 
 chrome.runtime.onMessage.addListener(({ mode, tab }) => {
   if (busy.has(tab.id)) return;
@@ -27,8 +38,9 @@ async function capture(tab, mode) {
   const inPage = async (func, ...args) => (await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args }))[0].result;
   const name = fileName(tab);
   badge('...');
-  let start = { x: 0, y: 0 };
+  let start = { x: 0, y: 0 }, release;
   try {
+    if (mode === 'full') release = await holdOffDebugger();
     if (full) await inPage(block);
     // Page size at click time is the capture size, so infinite-scroll results loaded
     // while we scroll (eBay, feeds) are ignored instead of chased.
@@ -37,7 +49,9 @@ async function capture(tab, mode) {
     start = (await (full ? inPage(scrollThrough, ...(mode === 'fast' ? [] : [MAX_FRAMES])) : inPage(here)).catch(e => { if (full) throw e; })) ?? start;
     // Fast shot: back to the top and let scroll handlers settle, or hide-on-scroll headers show their scrolled-down state.
     if (mode === 'fast') { await inPage(scrollToXY, 0, 0); await sleep(600); }
-    const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
+    const fast = mode === 'fast' && Promise.all([debugging, ...stitching]).then(() => debuggerShot(tab.id));
+    if (fast) debugging = fast.catch(() => {});
+    const { blob, note } = fast ? { blob: await fast }
       : full || start.w ? await stitch(tab, full, start, inPage)
       : { blob: await (await fetch(await shotSlot().then(() => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })))).blob() };
     const id = crypto.randomUUID();
@@ -61,6 +75,7 @@ async function capture(tab, mode) {
     console.error(e);
     badge('ERR');
   } finally {
+    release?.();
     await inPage(restore, start.x, start.y).catch(() => {});
   }
 }

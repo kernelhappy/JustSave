@@ -137,6 +137,19 @@ assert.strictEqual(files.size, 0, 'orphaned capture');
   at.sort((a, b) => a - b).slice(1).forEach((t, i) => assert(t - at[i] >= 500, 'captureVisibleTab calls ' + (t - at[i]).toFixed(1) + 'ms apart'));
   chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex;
 }
+// The debugger's infobar resizes every window's viewport: a fast shot in one window must not land mid-stitch in another.
+{
+  const log = [], cvt = chrome.tabs.captureVisibleTab, ex = chrome.scripting.executeScript, dbg = chrome.debugger;
+  chrome.tabs.get = async id => ({ active: true, windowId: id === 21 ? 8 : 7, index: 0 });
+  chrome.tabs.captureVisibleTab = async () => { log.push('frame'); return ''; };
+  chrome.debugger = { ...dbg, attach: async () => { log.push('attach'); }, detach: async () => { log.push('detach'); } };
+  chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
+  onMsg({ mode: 'full', tab: { id: 20, index: 0, windowId: 7, url: 'https://x.test/' } });
+  onMsg({ mode: 'fast', tab: { id: 21, index: 0, windowId: 8, url: 'https://x.test/' } });
+  await new Promise(r => setTimeout(r, 2500));
+  assert.deepStrictEqual(log, ['frame', 'frame', 'attach', 'detach'], 'fast shot during a stitched capture: ' + log);
+  chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex; chrome.debugger = dbg;
+}
 // Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
 const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
 // stitch(): hitting MAX_FRAMES partway through the bottom row leaves its right part white, which needs the truncation note too.
