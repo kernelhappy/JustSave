@@ -166,6 +166,14 @@ assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'wa
   win.justsaveUndo();
   assert.strictEqual(root.length, 0, 'undo left the snap override in place');
 }
+// block(): middle-click autoscroll starts on mousedown, and a focused iframe's keys never reach the top window; both scroll mid-capture.
+{
+  const live = [], frame = { tagName: 'IFRAME', blur() { frame.blurred = true; } };
+  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', fn('block') + 'block();')(
+    {}, { activeElement: frame, createElement: () => ({ style: {} }), documentElement: { append() {} } }, t => live.push(t), () => {}, () => 1, () => {});
+  assert(live.includes('mousedown'), 'middle-click autoscroll not blocked');
+  assert(frame.blurred, 'focused iframe keeps keyboard scrolling');
+}
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);

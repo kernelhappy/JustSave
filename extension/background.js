@@ -162,12 +162,14 @@ function block() {
   noSnap.textContent = 'html, body { scroll-snap-type: none !important }';
   document.documentElement.append(shield, noSnap);
   window.justsaveStop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
-  for (const t of ['wheel', 'keydown', 'touchmove']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
+  // mousedown: middle-click autoscroll. A focused iframe keeps its keys (they never reach this window) and chains scrolls up to the root.
+  if (document.activeElement?.tagName === 'IFRAME') document.activeElement.blur();
+  for (const t of ['wheel', 'keydown', 'touchmove', 'mousedown']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
   window.justsaveUndo = () => {
     clearTimeout(window.justsaveDog);
     shield.remove();
     noSnap.remove();
-    for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
+    for (const t of ['wheel', 'keydown', 'touchmove', 'mousedown']) removeEventListener(t, window.justsaveStop, { capture: true });
     for (const el of window.justsaveFrozen ?? []) {
       el.setAttribute('style', el.dataset.justsave);
       delete el.dataset.justsave;
