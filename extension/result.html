@@ -30,6 +30,8 @@
   #pick { outline: 1px dashed #1e88e5; pointer-events: none; }
   #pick.ends { outline: none; }
   #pick i { pointer-events: auto; }
+  /* Outside the shape, so a small one (Fit zoom) can still be grabbed inside to move it. */
+  #pick [data-h*=n] { top: -12px; } #pick [data-h*=s] { bottom: -12px; } #pick [data-h*=w] { left: -12px; } #pick [data-h*=e] { right: -12px; }
   #edit { position: absolute; margin: 0; padding: 0; border: 0; outline: 1px dashed #1e88e5; background: #fffc; resize: none; overflow: hidden; white-space: pre; field-sizing: content; min-width: 2ch; }
   #tools { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   #tools[hidden] { display: none; }
