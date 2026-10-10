@@ -16,7 +16,7 @@ chrome.runtime.onMessage.addListener(({ mode, tab }) => {
   capture(tab, mode).finally(() => busy.delete(tab.id));
 });
 
-// mode: 'visible' | 'full' (stitched) | 'fast' (debugger). Opens the capture in a result tab (save, download, copy, print).
+// mode: 'visible' | 'full' (stitched) | 'fast' (debugger). Opens the capture in a result tab (save, copy, print).
 async function capture(tab, mode) {
   const full = mode !== 'visible';
   const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text }).catch(() => {}); // the tab may be gone

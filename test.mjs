@@ -106,7 +106,7 @@ new Function('window', 'document', 'addEventListener', 'removeEventListener', 's
 assert(timer, 'block() arms no watchdog');
 timer();
 assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'watchdog left the page locked');
-// fileName: Download rejects control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
+// fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
 // scrollThrough: stop when the page no longer scrolls (fractional zoom, unscrollable window) instead of looping 100x150ms.
@@ -114,4 +114,95 @@ const t0 = Date.now();
 await new Function('document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(
   { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
 assert(Date.now() - t0 < 1000, 'scrollThrough kept waiting on a page that does not scroll');
+// Markup geometry and serialization.
+const { dragEdges, bounds, move, resize, toSvg, snap, nextSize } = await import('./extension/markup.js');
+assert.deepStrictEqual(snap([0, 0], [10, 2]).map(Math.round), [10, 0]); // near-horizontal -> horizontal
+assert.deepStrictEqual(snap([0, 0], [-1, -10]).map(Math.round), [0, -10]); // near-vertical -> vertical
+assert.deepStrictEqual(snap([0, 0], [9, 11]).map(v => Math.round(v * 10)), [100, 100]); // diagonal, same length
+assert.deepStrictEqual([nextSize(20, 1), nextSize(20, -1), nextSize(21, -1), nextSize(96, 1), nextSize(8, -1)], [24, 18, 20, 96, 8]);
+assert.deepStrictEqual(dragEdges({ l: 10, t: 10, r: 20, b: 20 }, 'e', -15, 0), { l: 5, t: 10, r: 10, b: 20 }); // past the far edge flips
+assert.deepStrictEqual(dragEdges({ l: 10, t: 10, r: 20, b: 20 }, 'nw', -50, 5, { l: 0, t: 0, r: 30, b: 30 }), { l: 0, t: 15, r: 20, b: 20 });
+assert.deepStrictEqual(resize({ type: 'pen', pts: [[0, 0], [5, 5], [10, 10]] }, 'se', 10, 0).pts, [[0, 0], [10, 5], [20, 10]]);
+assert.deepStrictEqual(resize({ type: 'hl', pts: [[0, 4], [10, 4]] }, 's', 0, 6).pts, [[0, 4], [10, 4]]); // a flat line doesn't divide by 0
+assert.deepStrictEqual(resize({ type: 'line', pts: [[0, 0], [10, 10]] }, '1', 5, -5).pts, [[0, 0], [15, 5]]);
+const label = { type: 'text', size: 10, em: 2, x: 10, y: 10, text: 'ab' }; // 20 x 12.5
+assert.deepStrictEqual(bounds(resize(label, 'se', 0, 12.5)), { l: 10, t: 10, r: 50, b: 35 }); // double size, top-left stays
+assert.deepStrictEqual(bounds(resize(label, 'nw', 0, -12.5)), { l: -10, t: -2.5, r: 30, b: 22.5 }); // bottom-right stays
+assert.deepStrictEqual(bounds(resize(label, 'se', 20, 0)), { l: 10, t: 10, r: 50, b: 35 }); // a horizontal drag scales too
+assert.deepStrictEqual(bounds(resize(label, 'se', -30, 0)), { l: 0, t: 10, r: 10, b: 16.25 }); // dragged past the left edge: half size, hanging left of the anchor
+const call = move({ type: 'callout', size: 10, em: 1, x: 0, y: 0, text: 'a', tip: [50, 50], w: 2 }, 3, 4);
+assert.deepStrictEqual([call.x, call.y, call.tip], [3, 4, [53, 54]]);
+assert.deepStrictEqual(resize(call, 'tip', 1, 1).tip, [54, 55]);
+const svg = toSvg([{ type: 'text', c: 'red', size: 10, em: 1, x: 0, y: 0, text: '<a>\n&b' }, { type: 'cloud', c: 'red', w: 2, l: 0, t: 0, r: 100, b: 50 }], { x: 5, y: 6, w: 100, h: 50 });
+assert.match(svg, /viewBox="5 6 100 50" width="100" height="50"/); // the crop offset shifts the view, not the shapes
+assert.match(svg, /&#60;a&#62;<\/tspan><tspan[^>]*>&#38;b</);
+assert.strictEqual(svg.match(/A\d/g).length, 8 + 4 + 8 + 4); // 12-px scallops: 100 / 12 ≈ 8 per long side, 50 / 12 ≈ 4 per short
+assert.doesNotMatch(svg, /opacity="0"/); // hit outlines only on screen
+// Constants scale with dpr like the widths do: 2x the width at dpr 2 draws 2x the arrowhead and scallops.
+assert.match(toSvg([{ type: 'arrow', c: 'red', w: 4, pts: [[0, 0], [1000, 0]] }], { x: 0, y: 0, w: 9, h: 9 }, 0, 2), /M1000 0L964 18L964 -18Z/); // head 3 * 4 + 12 * 2 = 36 long
+assert.strictEqual(toSvg([{ type: 'cloud', c: 'red', w: 1, l: 0, t: 0, r: 100, b: 50 }], { x: 0, y: 0, w: 100, h: 50 }, 0, 2).match(/A\d/g).length, 4 + 2 + 4 + 2); // 24-px scallops
+const odd = toSvg([{ type: 'text', c: 'red', size: 10, em: 1, x: 0, y: 0, text: 'a\f\v\u0000\u001b￾￿\ud800b\tc' }], { x: 0, y: 0, w: 9, h: 9 });
+assert.doesNotMatch(odd, /[^\n\r -퟿-�\u{10000}-\u{10ffff}]/u); // only XML-legal characters, or the export can't decode it
+assert.match(odd, />ab c</); // a tab draws as the one space it's measured as
+assert.match(toSvg([{ type: 'ellipse', c: '#000', w: 2, fill: true, l: 0, t: 0, r: 9, b: 9 }], { x: 0, y: 0, w: 9, h: 9 }), /fill="#000"/);
+assert.strictEqual(toSvg([{ type: 'rect', c: 'red', w: 2, l: 0, t: 0, r: 9, b: 9 }], { x: 0, y: 0, w: 9, h: 9 }, 8).match(/stroke-width="10"/g).length, 1);
+for (const [l, r] of [[0, 3], [0, 100], [0.04, 7.26]]) { // each arc must span the full box width, so rx is half the endpoint distance
+  const [, x0, , rx, , x1] = toSvg([{ type: 'ellipse', c: 'red', w: 2, l, t: 0, r, b: 300 }], { x: 0, y: 0, w: 9, h: 9 }).match(/d="M([\d.]+) ([\d.]+)A([\d.]+) ([\d.]+) 0 1 0 ([\d.]+)/);
+  assert.ok(Math.abs(+rx * 2 - (+x1 - +x0)) < 1e-9, `ellipse ${l}..${r}: rx ${rx} vs ${x0}..${x1}`);
+}
+// Text edit: a window blur (Alt+Tab) leaves the textarea focused, so it must not end the edit; a real blur does.
+const onblur = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/edit\.onblur = .*/)[0];
+for (const [active, ends] of [['edit', false], ['body', true]]) {
+  let ended = false;
+  const edit = {};
+  new Function('edit', 'document', 'finishEdit', onblur)(edit, { activeElement: active === 'edit' ? edit : {} }, () => { ended = true; });
+  edit.onblur();
+  assert.strictEqual(ended, ends, `blur with ${active} focused`);
+}
+// Fill with a line selected toggles the default fill both ways (a line has no fill of its own).
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const style = { pen: { fill: false }, hl: {} }, shapes = [{ type: 'line', pts: [] }];
+  const tools = {};
+  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', `let gesture = false, cur = 0, tool = 'select', dpr = 1; ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
+    () => tools, shapes, style, () => style.pen, () => {}, () => {});
+  const click = () => tools.onclick({ target: { closest: () => ({ dataset: { fill: '' } }) } });
+  click();
+  assert.strictEqual(style.pen.fill, true);
+  click();
+  assert.strictEqual(style.pen.fill, false, 'second Fill click turns the default fill off');
+}
+// Delete/Backspace on the Format or Quality <select> must not delete the selected shape.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  let removed = 0;
+  const f = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    () => {}, () => {}, () => false, () => true, () => { removed++; }, {}, () => {}, () => {}, { dataset: {} });
+  f({ key: 'Delete', target: { tagName: 'SELECT' } });
+  f({ key: 'Backspace', target: { tagName: 'SELECT' } });
+  assert.strictEqual(removed, 0, 'Delete on a <select> removed the shape');
+  f({ key: 'Delete', target: { tagName: 'BODY' } });
+  assert.strictEqual(removed, 1);
+}
+// Fit in a window shorter than the header must not go to a zero or negative scale.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const shot = { naturalWidth: 800, naturalHeight: 600, style: {} }, label = {};
+  const [apply, get] = new Function('$', 'shot', 'header', 'document', 'innerHeight', 'devicePixelRatio', 'render', `let zoom = 'fit', scale = 1; ${src.match(/function applyZoom\(\) \{[\s\S]*?\n\}/)[0]} return [applyZoom, () => scale];`)(
+    () => label, shot, { offsetHeight: 90 }, { documentElement: { clientWidth: 1000 } }, 100, 1, () => {});
+  apply();
+  assert.ok(get() > 0, `fit scale ${get()} in a short window`);
+}
+// Zooming the browser keeps the picked width and text size in screen pixels, and the pressed-state match exact.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const style = { pen: { w: 4, size: 20 }, hl: { w: 8 } }, g = { devicePixelRatio: 1 };
+  const [sync, get] = new Function('style', 'g', `let dpr = 1; ${src.match(/function syncDpr\(\) \{[\s\S]*?\n\}/)[0].replaceAll('devicePixelRatio', 'g.devicePixelRatio')} return [syncDpr, () => dpr];`)(style, g);
+  for (const r of [1.1, 1.25, 2.5, 0.9, 1]) {
+    g.devicePixelRatio = r;
+    sync();
+    assert.equal(get(), r);
+    assert.ok(style.pen.w === 4 * r && style.pen.size === 20 * r && style.hl.w === 8 * r, `at ${r}: ${JSON.stringify(style)}`);
+  }
+}
 console.log('ok');
