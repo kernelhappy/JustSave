@@ -2,6 +2,8 @@ import { idb } from './idb.js';
 
 // Chrome canvas limits (per side, and total pixels); bigger captures are scaled down to fit.
 const MAX_CANVAS = 32767, MAX_AREA = 268435456;
+// Downscale factor (<= 1) that fits a w x h device-pixel image within those limits.
+const fit = (w, h) => Math.min(1, MAX_CANVAS / w, MAX_CANVAS / h, Math.sqrt(MAX_AREA / (w * h)));
 // Backstop for very large pages.
 const MAX_FRAMES = 100;
 
@@ -75,7 +77,7 @@ async function stitch(tab, full, start, inPage) {
   const s = frames[0].img.width / frames[0].iw;
   const cssW = Math.min(start.w, Math.max(...frames.map(f => f.x + f.vw))) - x0;
   const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
-  const k = Math.min(1, MAX_CANVAS / (cssW * s), MAX_CANVAS / (cssH * s), Math.sqrt(MAX_AREA / (cssW * s * cssH * s)));
+  const k = fit(cssW * s, cssH * s);
   const px = v => Math.round(v * s * k);
   const size = v => Math.floor(v * s * k + 1e-6); // floor: rounding both sides up can exceed MAX_AREA, which Chrome rejects
   const canvas = new OffscreenCanvas(size(cssW), size(cssH)), ctx = canvas.getContext('2d');
@@ -97,9 +99,12 @@ async function debuggerShot(tabId) {
   await chrome.debugger.attach(target, '1.3');
   try {
     const { cssContentSize: { width, height } } = await send('Page.getLayoutMetrics');
+    // Output is CSS size x devicePixelRatio x scale; keep it canvas-sized so result.js can re-encode it (JPG/PDF).
+    const { result: { value: dpr } } = await send('Runtime.evaluate', { expression: 'devicePixelRatio', returnByValue: true });
+    const k = fit(width * dpr, height * dpr), scale = k < 1 ? k * 0.999 : 1; // margin: Chrome rounds the output size
     // Has hung once (eBay) and worked on retry; give up rather than leave the page locked.
     const { data } = await Promise.race([
-      send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } }),
+      send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale } }),
       sleep(30000).then(() => { throw new Error('Fast capture timed out'); }),
     ]);
     return (await fetch('data:image/png;base64,' + data)).blob();

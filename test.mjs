@@ -62,4 +62,14 @@ onMsg({ mode: 'visible', tab: { id: 2, index: 0, url: 'https://x.test/' } });
 await new Promise(r => setTimeout(r, 10));
 assert.strictEqual(dims.length, 1);
 assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
+// Fast capture: output is CSS size x devicePixelRatio x clip.scale, and must fit the canvas limits too (result.js re-encodes it).
+let clip;
+chrome.debugger = { attach: async () => {}, detach: async () => {}, sendCommand: async (t, m, p) =>
+  m === 'Page.getLayoutMetrics' ? { cssContentSize: { width: 1200, height: 20000 } }
+  : m === 'Runtime.evaluate' ? { result: { value: 2 } }
+  : (clip = p.clip, { data: '' }) };
+onMsg({ mode: 'fast', tab: { id: 3, index: 0, url: 'https://x.test/' } });
+await new Promise(r => setTimeout(r, 10));
+const out = [clip.width * 2 * clip.scale, clip.height * 2 * clip.scale];
+assert(out[0] <= 32767 && out[1] <= 32767 && out[0] * out[1] <= 268435456, 'fast capture ' + out);
 console.log('ok');
