@@ -169,6 +169,8 @@ assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'wa
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
+// ...and the 120-unit cut must not split an emoji's surrogate pair.
+assert(fileName({ url: 'file:///x', title: 'a'.repeat(104) + '😀' }).isWellFormed(), 'lone surrogate in file name');
 // scrollThrough: stop when the page no longer scrolls (fractional zoom, unscrollable window) instead of looping 100x150ms.
 const t0 = Date.now();
 await new Function('window', 'document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(

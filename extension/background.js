@@ -145,7 +145,7 @@ function fileName(tab) {
   const stamp = [d.getFullYear() % 100, d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(p).join('');
   let host = '';
   try { host = new URL(tab.url).hostname; } catch {}
-  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\p{Cc}\p{Cf}]+/gu, '_').slice(0, 120).replace(/[. ]+$/, '');
+  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\p{Cc}\p{Cf}]+/gu, '_').slice(0, 120).replace(/\p{Cs}$/u, '').replace(/[. ]+$/, '');
 }
 
 // --- Injected into the page (must be self-contained) ---
