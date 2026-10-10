@@ -70,8 +70,8 @@ export function resize(s, h, dx, dy) {
 }
 
 // Scallops of about d along each side, bulging outward (the path runs clockwise).
-function cloud({ l, t, r, b, w }) {
-  const c = [[l, t], [r, t], [r, b], [l, b], [l, t]], d = Math.max(w * 5, 12);
+function cloud({ l, t, r, b, w }, dpr) {
+  const c = [[l, t], [r, t], [r, b], [l, b], [l, t]], d = Math.max(w * 5, 12 * dpr);
   let p = `M${f(l)} ${f(t)}`;
   for (let i = 0; i < 4; i++) {
     const [x0, y0] = c[i], [x1, y1] = c[i + 1], len = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.round(len / d)), rad = f(len / n / 2);
@@ -81,11 +81,11 @@ function cloud({ l, t, r, b, w }) {
 }
 
 // pad > 0 draws a pad-wider outline instead, for hit testing.
-function draw(s, pad = 0) {
+function draw(s, pad = 0, dpr = 1) {
   const { c } = s, w = (s.type === 'hl' ? s.w * 4 : s.w) + pad, fill = s.fill ? c : 'none';
   const line = (d, more = '', fill = 'none') => `<path d="${d}" fill="${fill}" stroke="${c}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${more}/>`;
   const arrow = ([x0, y0], [x1, y1]) => {
-    const d = Math.hypot(x1 - x0, y1 - y0), L = s.w * 3 + 12, ux = (x1 - x0) / d || 0, uy = (y1 - y0) / d || 0, k = Math.min(L * 0.8, d);
+    const d = Math.hypot(x1 - x0, y1 - y0), L = s.w * 3 + 12 * dpr, ux = (x1 - x0) / d || 0, uy = (y1 - y0) / d || 0, k = Math.min(L * 0.8, d);
     const bx = x1 - ux * L, by = y1 - uy * L, hw = L / 2;
     return line(`M${f(x0)} ${f(y0)}L${f(x1 - ux * k)} ${f(y1 - uy * k)}`) + `<path d="M${f(x1)} ${f(y1)}L${f(bx - uy * hw)} ${f(by + ux * hw)}L${f(bx + uy * hw)} ${f(by - ux * hw)}Z" fill="${c}"/>`;
   };
@@ -101,7 +101,7 @@ function draw(s, pad = 0) {
       const [l, r, t, b] = [s.l, s.r, s.t, s.b].map(f), rx = (r - l) / 2, ry = (b - t) / 2, cy = t + ry;
       return line(`M${l} ${cy}A${rx} ${ry} 0 1 0 ${r} ${cy}A${rx} ${ry} 0 1 0 ${l} ${cy}Z`, '', fill);
     }
-    case 'cloud': return line(cloud(s), '', fill);
+    case 'cloud': return line(cloud(s, dpr), '', fill);
     case 'text': return pad ? `<path d="${rectD(bounds(s))}"/>` : text(s.x, s.y, c);
     case 'callout': {
       const b = bounds(s), p = PAD * s.size;
@@ -112,6 +112,6 @@ function draw(s, pad = 0) {
 }
 
 // v: the part of the uncropped capture showing, { x, y, w, h }. pad > 0 adds invisible, wider copies so thin shapes are easy to click.
-export const toSvg = (shapes, v, pad = 0) =>
+export const toSvg = (shapes, v, pad = 0, dpr = 1) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${v.x} ${v.y} ${v.w} ${v.h}" width="${v.w}" height="${v.h}">` +
-  shapes.map((s, i) => `<g data-i="${i}">${draw(s)}${pad ? `<g opacity="0">${draw(s, pad)}</g>` : ''}</g>`).join('') + '</svg>';
+  shapes.map((s, i) => `<g data-i="${i}">${draw(s, 0, dpr)}${pad ? `<g opacity="0">${draw(s, pad, dpr)}</g>` : ''}</g>`).join('') + '</svg>';

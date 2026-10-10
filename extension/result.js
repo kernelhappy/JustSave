@@ -42,7 +42,7 @@ async function encode(fmt) {
   const img = await createImageBitmap(png0), c = new OffscreenCanvas(img.width, img.height), ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   if (sh.length) {
-    const ink = new Image(), url = URL.createObjectURL(new Blob([toSvg(sh, { ...o, w: img.width, h: img.height })], { type: 'image/svg+xml' }));
+    const ink = new Image(), url = URL.createObjectURL(new Blob([toSvg(sh, { ...o, w: img.width, h: img.height }, 0, dpr)], { type: 'image/svg+xml' }));
     ink.src = url;
     await ink.decode().finally(() => URL.revokeObjectURL(url));
     ctx.drawImage(ink, 0, 0);
@@ -217,7 +217,7 @@ measure.font = '600 100px system-ui, sans-serif';
 function render() {
   const W = shot.naturalWidth;
   if (!W) return;
-  ink.innerHTML = toSvg(shapes, { ...off, w: W, h: shot.naturalHeight }, 12 * W / shot.clientWidth);
+  ink.innerHTML = toSvg(shapes, { ...off, w: W, h: shot.naturalHeight }, 12 * W / shot.clientWidth, dpr);
   const s = shapes[cur];
   pickBox.hidden = !s || editing != null;
   if (!pickBox.hidden) {
