@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JustSave</title>
+<meta name="description" content="Capture the visible area or the entire page, then save it as PNG, JPG or PDF, copy it, or print it.">
+<link rel="icon" href="icon-128.png">
+<style>
+  :root { --bg: #fff; --fg: #202124; --muted: #5f6368; --card: #f1f3f4; --accent: #1a73e8; --accent-fg: #fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #202124; --fg: #e8eaed; --muted: #9aa0a6; --card: #2d2e31; --accent: #8ab4f8; --accent-fg: #202124; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 48px 16px; }
+  header { text-align: center; }
+  header img { height: 72px; max-width: 100%; }
+  .pitch { font-size: 1.25rem; color: var(--muted); max-width: 560px; margin: 16px auto 28px; }
+  .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; background: var(--accent); color: var(--accent-fg); font-weight: 600; text-decoration: none; }
+  .shot { display: block; max-width: 100%; margin: 40px auto 0; border-radius: 8px; box-shadow: 0 4px 24px #0003; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 48px 0; }
+  .cards div { background: var(--card); border-radius: 8px; padding: 20px; }
+  h2 { font-size: 1.25rem; margin: 40px 0 8px; }
+  h3 { margin: 0 0 6px; font-size: 1rem; }
+  .cards p, footer { color: var(--muted); margin: 0; }
+  code { background: var(--card); padding: 2px 6px; border-radius: 4px; }
+  footer { text-align: center; margin-top: 56px; font-size: .9rem; }
+  a { color: var(--accent); }
+</style>
+<main>
+  <header>
+    <picture>
+      <source srcset="logo-dark.png" media="(prefers-color-scheme: dark)">
+      <img src="logo-light.png" alt="JustSave">
+    </picture>
+    <p class="pitch">Capture the visible area or the entire page, then save it as PNG, JPG or PDF, copy it, or print it.</p>
+    <a class="btn" href="https://github.com/kernelhappy/JustSave/releases/latest">Download for Chrome</a>
+    <!-- Screenshot: add docs/screenshot.png, then uncomment.
+    <img class="shot" src="screenshot.png" alt="JustSave result tab">
+    -->
+  </header>
+
+  <section class="cards">
+    <div><h3>Whole page, one click</h3><p>Scrolls and stitches the page, loads lazy content first, and shows sticky headers once. Or grab just what's on screen.</p></div>
+    <div><h3>PNG, JPG or PDF</h3><p>Quality presets, and PDFs split into Letter pages at the quietest row so text isn't cut in half.</p></div>
+    <div><h3>Save your way</h3><p>Save to a folder Chrome remembers, download, copy to the clipboard, or print.</p></div>
+  </section>
+
+  <h2>Install</h2>
+  <ol>
+    <li>Download the zip from the <a href="https://github.com/kernelhappy/JustSave/releases/latest">latest release</a> and unzip it.</li>
+    <li>Open <code>chrome://extensions</code> and turn on <strong>Developer mode</strong>.</li>
+    <li>Click <strong>Load unpacked</strong> and select the unzipped <code>JustSave</code> folder.</li>
+  </ol>
+
+  <h2>Privacy</h2>
+  <p>No network requests and no analytics. Captures stay in your browser until you save them.</p>
+
+  <footer><a href="https://github.com/kernelhappy/JustSave">Source on GitHub</a> · MIT License</footer>
+</main>
+</html>
