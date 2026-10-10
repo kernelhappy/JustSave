@@ -4,8 +4,9 @@ export const idb = (mode, fn) => new Promise((resolve, reject) => {
   open.onupgradeneeded = () => open.result.createObjectStore('files');
   open.onerror = () => reject(open.error);
   open.onsuccess = () => {
-    const req = fn(open.result.transaction('files', mode).objectStore('files'));
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    // Settle on the transaction, not the request: a big put can still fail at commit (quota).
+    const db = open.result, tx = db.transaction('files', mode), req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => { db.close(); resolve(req.result); };
+    tx.onabort = () => { db.close(); reject(tx.error ?? req.error); };
   };
 });

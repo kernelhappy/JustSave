@@ -19,7 +19,7 @@ chrome.runtime.onMessage.addListener(({ mode, tab }) => {
 // mode: 'visible' | 'full' (stitched) | 'fast' (debugger). Opens the capture in a result tab (save, download, copy, print).
 async function capture(tab, mode) {
   const full = mode !== 'visible';
-  const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text });
+  const badge = text => chrome.action.setBadgeText({ tabId: tab.id, text }).catch(() => {}); // the tab may be gone
   const inPage = async (func, ...args) => (await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args }))[0].result;
   const name = fileName(tab);
   badge('...');
@@ -28,10 +28,13 @@ async function capture(tab, mode) {
     if (full) await inPage(block);
     // Page size at click time is the capture size, so infinite-scroll results loaded
     // while we scroll (eBay, feeds) are ignored instead of chased.
-    start = await inPage(full ? scrollThrough : here);
-    const blob = mode === 'fast' ? await debuggerShot(tab.id) : await stitch(tab, full, start, inPage);
+    // Visible area survives pages that block scripts as a plain screenshot (scrollbars included); a failed injection can also return null.
+    start = (await inPage(full ? scrollThrough : here).catch(e => { if (full) throw e; })) ?? start;
+    const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
+      : full || start.w ? await stitch(tab, full, start, inPage)
+      : { blob: await (await fetch(await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }))).blob() };
     const id = crypto.randomUUID();
-    await idb('readwrite', st => st.put({ blob, name }, id));
+    await idb('readwrite', st => st.put({ blob, name, note }, id));
     try {
       // Re-read the tab (it may have moved); create rejects an opener outside the target window, which defaults to the focused one.
       const t = await chrome.tabs.get(tab.id);
@@ -53,7 +56,8 @@ async function capture(tab, mode) {
 // no viewport resizing, so the page lays out as displayed.
 async function stitch(tab, full, start, inPage) {
   // captureVisibleTab grabs whatever tab is showing, so a tab switch would stitch in the wrong page.
-  const checkActive = async () => { if (!(await chrome.tabs.get(tab.id)).active) throw new Error('Tab switched during capture'); };
+  // A tab dragged to another window is still active there, so check the window too.
+  const checkActive = async () => { const t = await chrome.tabs.get(tab.id); if (!t.active || t.windowId !== tab.windowId) throw new Error('Tab switched during capture'); };
   const x0 = full ? 0 : start.x, y0 = full ? 0 : start.y;
   const x1 = full ? start.w : x0 + 1, y1 = full ? start.h : y0 + 1;
 
@@ -96,7 +100,8 @@ async function stitch(tab, full, start, inPage) {
     ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
     f.img.close(); // free each frame now: 100 full-res bitmaps can run the worker out of memory
   }
-  return canvas.convertToBlob({ type: 'image/png' });
+  const cut = frames.length >= MAX_FRAMES && cssH < start.h - y0;
+  return { blob: await canvas.convertToBlob({ type: 'image/png' }), note: cut ? `Page too long: captured the first ${MAX_FRAMES} screens.` : undefined };
 }
 
 // One shot of the whole page via the DevTools protocol, like DevTools' "Capture full size screenshot".
@@ -117,7 +122,7 @@ async function debuggerShot(tabId) {
     ]);
     return (await fetch('data:image/png;base64,' + data)).blob();
   } finally {
-    await chrome.debugger.detach(target);
+    await chrome.debugger.detach(target).catch(() => {}); // already detached (user cancelled the infobar): keep the shot or the real error
   }
 }
 
@@ -129,7 +134,7 @@ function fileName(tab) {
   const stamp = [d.getFullYear() % 100, d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(p).join('');
   let host = '';
   try { host = new URL(tab.url).hostname; } catch {}
-  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\x00-\x1f]+/g, '_').slice(0, 120).replace(/[. ]+$/, '');
+  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\p{Cc}\p{Cf}]+/gu, '_').slice(0, 120).replace(/[. ]+$/, '');
 }
 
 // --- Injected into the page (must be self-contained) ---
@@ -147,10 +152,11 @@ function block() {
     clearTimeout(window.justsaveDog);
     shield.remove();
     for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
-    for (const el of document.querySelectorAll('[data-justsave]')) {
+    for (const el of window.justsaveFrozen ?? []) {
       el.setAttribute('style', el.dataset.justsave);
       delete el.dataset.justsave;
     }
+    window.justsaveFrozen = null;
   };
   // Watchdog: if the service worker dies mid-capture, restore() never comes, so unlock after 60s of silence
   // (longest gap: fast capture's 30s timeout plus encoding). Every injected step re-arms it.
@@ -168,7 +174,9 @@ function here() {
 async function scrollThrough() {
   const d = document.scrollingElement || document.documentElement, x = scrollX, y = scrollY, w = d.scrollWidth, h = d.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < 100 && scrollY + innerHeight < h; i++) {
+    const before = scrollY;
     scrollBy({ top: innerHeight, behavior: 'instant' });
+    if (scrollY === before) break; // at the bottom (fractional zoom can keep it a hair short of h) or the window can't scroll
     await wait(150);
   }
   return { x, y, w, h };
@@ -186,10 +194,14 @@ function scrollToXY(x, y) {
 // after the first frame, fixed elements (headers, chat buttons) are hidden so they appear once.
 function freeze(hideFixed) {
   window.justsaveArm?.();
-  for (const el of document.querySelectorAll('body *')) {
+  // Open shadow roots too: web components can carry their own sticky headers.
+  const els = [], walk = root => { for (const el of root.querySelectorAll('*')) { els.push(el); if (el.shadowRoot) walk(el.shadowRoot); } };
+  walk(document.body ?? document.documentElement);
+  for (const el of els) {
     const pos = getComputedStyle(el).position;
     if (pos !== 'sticky' && !(hideFixed && pos === 'fixed')) continue;
     if (!('justsave' in el.dataset)) el.dataset.justsave = el.getAttribute('style') ?? '';
+    (window.justsaveFrozen ??= new Set()).add(el);
     if (pos === 'sticky') for (const [k, v] of [['position', 'relative'], ['top', 'auto'], ['right', 'auto'], ['bottom', 'auto'], ['left', 'auto']]) el.style.setProperty(k, v, 'important'); // insets would offset a relative box
     else el.style.setProperty('opacity', '0', 'important');
   }

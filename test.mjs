@@ -26,7 +26,7 @@ console.error = () => {};
 const injected = [];
 globalThis.chrome = {
   runtime: { onMessage: { addListener: f => { onMsg = f; } } },
-  action: { setBadgeText() {} },
+  action: { setBadgeText: async () => {} },
   scripting: { executeScript: async ({ func }) => {
     injected.push(func.name);
     if (func.name === 'block') await new Promise(r => { release = r; });
@@ -48,7 +48,10 @@ assert.strictEqual(injected.filter(n => n === 'here').length, 1);
 // freeze(): a sticky element turned relative must also drop its insets, or top:80px shifts it for good.
 const src = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8').match(/function freeze[\s\S]*?\r?\n}\r?\n/)[0];
 const set = {}, el = { dataset: {}, getAttribute: () => null, style: { setProperty: (k, v) => { set[k] = v; } } };
-new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')({}, { querySelectorAll: () => [el] }, () => ({ position: 'sticky' }));
+const shadowEl = { dataset: {}, getAttribute: () => null, style: { setProperty() { shadowEl.frozen = true; } } };
+const host = { shadowRoot: { querySelectorAll: () => [shadowEl] } }, win = {};
+new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')(win, { body: { querySelectorAll: () => [el, host] } }, e => ({ position: e === host ? 'static' : 'sticky' }));
+assert(shadowEl.frozen && win.justsaveFrozen.has(shadowEl), 'freeze() skipped a shadow root');
 assert.strictEqual(set.position, 'relative');
 for (const k of ['top', 'right', 'bottom', 'left']) assert.strictEqual(set[k], 'auto', k);
 // Stitch canvas: when the area limit binds, independently rounding each side up must not exceed it (Chrome rejects the canvas).
@@ -74,12 +77,16 @@ const out = [clip.width * 2 * clip.scale, clip.height * 2 * clip.scale];
 assert(out[0] <= 32767 && out[1] <= 32767 && out[0] * out[1] <= 268435456, 'fast capture ' + out);
 // Result tab handoff: open it in the source tab's current window (create rejects an opener in another window),
 // and if it still can't open, drop the stored capture instead of orphaning it in IndexedDB.
-const files = new Map(), req = r => { const q = { result: r }; setTimeout(() => q.onsuccess()); return q; };
-globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { transaction: () => ({ objectStore: () => ({ put: (v, k) => req(files.set(k, v)), delete: k => req(files.delete(k)) }) }) }; o.onsuccess(); }); return o; } };
+const files = new Map();
+globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { close() {}, transaction() {
+  const tx = { objectStore: () => ({ put: (v, k) => (files.set(k, v), {}), delete: k => (files.delete(k), {}) }) };
+  setTimeout(() => tx.oncomplete());
+  return tx;
+} }; o.onsuccess(); }); return o; } };
 const created = [];
 chrome.tabs.get = async () => ({ active: true, windowId: 7, index: 4 });
 chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); };
-onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 5, url: 'https://x.test/' } });
+onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 7, url: 'https://x.test/' } }); // create defaults to the focused window, not 7
 await new Promise(r => setTimeout(r, 50));
 assert.strictEqual(created.length, 1);
 assert.strictEqual(created[0].index, 5);
@@ -93,10 +100,18 @@ assert.strictEqual(files.size, 0, 'orphaned capture');
 const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
 let timer, shield = { style: {}, remove() { shield.gone = true; } };
 const listeners = new Set(), page = { dataset: { justsave: 'color:red' }, setAttribute(k, v) { page.restored = v; } };
-const doc = { createElement: () => shield, documentElement: { append() {} }, getElementById: () => (shield.gone ? null : shield), querySelectorAll: () => ('justsave' in page.dataset ? [page] : []) };
+const doc = { createElement: () => shield, documentElement: { append() {} } };
 new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', 'scrollTo', fn('block') + 'block();')(
-  {}, doc, (t, f) => listeners.add(t), t => listeners.delete(t), f => (timer = f), () => { timer = null; }, () => {});
+  { justsaveFrozen: new Set([page]) }, doc, (t, f) => listeners.add(t), t => listeners.delete(t), f => (timer = f), () => { timer = null; }, () => {});
 assert(timer, 'block() arms no watchdog');
 timer();
 assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'watchdog left the page locked');
+// fileName: Download rejects control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
+const fileName = new Function(fn('fileName') + 'return fileName;')();
+assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
+// scrollThrough: stop when the page no longer scrolls (fractional zoom, unscrollable window) instead of looping 100x150ms.
+const t0 = Date.now();
+await new Function('document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(
+  { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
+assert(Date.now() - t0 < 1000, 'scrollThrough kept waiting on a page that does not scroll');
 console.log('ok');
