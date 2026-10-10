@@ -20,4 +20,29 @@ data.fill(0, (2 * W + 5) * 4, (2 * W + 6) * 4);
 for (let r = 3; r < 5; r++) for (let x = 0; x < W; x += 2) data.fill(0, (r * W + x) * 4, (r * W + x + 1) * 4);
 assert.strictEqual(quietRow(data, W, 5), 1);
 assert.strictEqual(quietRow(data.subarray(2 * W * 4), W, 3), 0); // no blank row -> least busy row
+// Per-tab capture lock: a second capture on a busy tab must not inject block() again (it would leak listeners).
+let onMsg, release;
+console.error = () => {};
+const injected = [];
+globalThis.chrome = {
+  runtime: { onMessage: { addListener: f => { onMsg = f; } } },
+  action: { setBadgeText() {} },
+  scripting: { executeScript: async ({ func }) => {
+    injected.push(func.name);
+    if (func.name === 'block') await new Promise(r => { release = r; });
+    if (func.name === 'scrollThrough') throw new Error('stop');
+    return [{ result: { x: 0, y: 0, w: 1, h: 1 } }];
+  } },
+};
+await import('./extension/background.js');
+const tab = { id: 1, index: 0, url: 'https://x.test/' };
+onMsg({ mode: 'full', tab });
+onMsg({ mode: 'fast', tab });
+await new Promise(r => setTimeout(r, 10));
+release();
+await new Promise(r => setTimeout(r, 10));
+assert.deepStrictEqual(injected.filter(n => n === 'block'), ['block']);
+onMsg({ mode: 'visible', tab }); // lock released after the first capture finished
+await new Promise(r => setTimeout(r, 10));
+assert.strictEqual(injected.filter(n => n === 'here').length, 1);
 console.log('ok');

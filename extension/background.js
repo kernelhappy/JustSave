@@ -5,7 +5,14 @@ const MAX_CANVAS = 32767, MAX_AREA = 268435456;
 // Backstop for very large pages.
 const MAX_FRAMES = 100;
 
-chrome.runtime.onMessage.addListener(({ mode, tab }) => { capture(tab, mode); });
+// Tabs with a capture in progress: a second one would re-inject block() and interleave scrolling.
+const busy = new Set();
+
+chrome.runtime.onMessage.addListener(({ mode, tab }) => {
+  if (busy.has(tab.id)) return;
+  busy.add(tab.id);
+  capture(tab, mode).finally(() => busy.delete(tab.id));
+});
 
 // mode: 'visible' | 'full' (stitched) | 'fast' (debugger). Opens the capture in a result tab (save, download, copy, print).
 async function capture(tab, mode) {
@@ -29,7 +36,7 @@ async function capture(tab, mode) {
     console.error(e);
     badge('ERR');
   } finally {
-    inPage(restore, start.x, start.y).catch(() => {});
+    await inPage(restore, start.x, start.y).catch(() => {});
   }
 }
 
