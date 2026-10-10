@@ -175,6 +175,7 @@ async function applyCrop() {
   const img = await createImageBitmap(src, x, y, w, h), c = new OffscreenCanvas(w, h);
   c.getContext('2d').drawImage(img, 0, 0);
   const blob = await c.convertToBlob({ type: 'image/png' });
+  if (png !== src) return; // Undo crop landed meanwhile; applying now would make original a cropped image
   original ??= src;
   off = { x: o.x + x, y: o.y + y };
   setShot(blob);
