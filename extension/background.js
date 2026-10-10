@@ -38,7 +38,9 @@ async function capture(tab, mode) {
     try {
       // Re-read the tab (it may have moved); create rejects an opener outside the target window, which defaults to the focused one.
       const t = await chrome.tabs.get(tab.id);
-      await chrome.tabs.create({ url: 'result.html#' + id, windowId: t.windowId, index: t.index + 1, openerTabId: tab.id });
+      const r = await chrome.tabs.create({ url: 'result.html#' + id, windowId: t.windowId, index: t.index + 1, openerTabId: tab.id });
+      // result.js deletes the record on load, so a discarded result tab would reload to nothing.
+      chrome.tabs.update(r.id, { autoDiscardable: false }).catch(() => {});
     } catch (e) {
       await idb('readwrite', st => st.delete(id)); // only result.js deletes it otherwise
       throw e;

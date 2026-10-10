@@ -97,12 +97,16 @@ globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { 
 } }; o.onsuccess(); }); return o; } };
 const created = [];
 chrome.tabs.get = async () => ({ active: true, windowId: 7, index: 4 });
-chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); };
+chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); return { id: 99 }; };
+const updated = [];
+chrome.tabs.update = async (id, p) => { updated.push([id, p]); };
 onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 7, url: 'https://x.test/' } }); // create defaults to the focused window, not 7
 await new Promise(r => setTimeout(r, 50));
 assert.strictEqual(created.length, 1);
 assert.strictEqual(created[0].index, 5);
 assert.strictEqual(files.size, 1);
+// Memory Saver must not discard the result tab: result.js already deleted the record, so a reload loses the capture.
+assert.deepStrictEqual(updated, [[99, { autoDiscardable: false }]], 'result tab is discardable');
 files.clear();
 chrome.tabs.create = async () => { throw new Error('window closed'); };
 onMsg({ mode: 'visible', tab: { id: 5, index: 0, windowId: 7, url: 'https://x.test/' } });
