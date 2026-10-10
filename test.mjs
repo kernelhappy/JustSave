@@ -203,6 +203,13 @@ assert(Date.now() - t0 < 1000, 'scrollThrough kept waiting on a page that does n
   await new Function('env', 'with (env) { async ' + fn('scrollThrough') + 'return scrollThrough(); }')(env);
   assert(arms >= 4, 'scrollThrough re-armed the watchdog ' + arms + 'x over 4 steps');
 }
+// scrollThrough: fast mode (no step cap) shoots the whole page, so it must scroll past 100 screens to trigger lazy content.
+{
+  const env = { window: {}, document: { documentElement: { scrollWidth: 800, scrollHeight: 600 * 150 } }, scrollX: 0, scrollY: 0, innerHeight: 600,
+    scrollBy: ({ top }) => { env.scrollY += top; }, setTimeout: f => f() };
+  await new Function('env', 'with (env) { async ' + fn('scrollThrough') + 'return scrollThrough(); }')(env);
+  assert(env.scrollY + 600 >= 600 * 150, 'fast scroll-through stopped at ' + env.scrollY);
+}
 // Markup geometry and serialization.
 const { dragEdges, bounds, move, resize, toSvg, snap, nextSize } = await import('./extension/markup.js');
 assert.deepStrictEqual(snap([0, 0], [10, 2]).map(Math.round), [10, 0]); // near-horizontal -> horizontal

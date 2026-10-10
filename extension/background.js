@@ -33,7 +33,8 @@ async function capture(tab, mode) {
     // Page size at click time is the capture size, so infinite-scroll results loaded
     // while we scroll (eBay, feeds) are ignored instead of chased.
     // Visible area survives pages that block scripts as a plain screenshot (scrollbars included); a failed injection can also return null.
-    start = (await inPage(full ? scrollThrough : here).catch(e => { if (full) throw e; })) ?? start;
+    // Stitched stops at MAX_FRAMES screens; fast shoots the whole page, so it scrolls all of it.
+    start = (await (full ? inPage(scrollThrough, ...(mode === 'fast' ? [] : [MAX_FRAMES])) : inPage(here)).catch(e => { if (full) throw e; })) ?? start;
     // Fast shot: back to the top and let scroll handlers settle, or hide-on-scroll headers show their scrolled-down state.
     if (mode === 'fast') { await inPage(scrollToXY, 0, 0); await sleep(600); }
     const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
@@ -196,9 +197,9 @@ function here() {
 
 // Scroll through the page (as tall as it is now) so lazy-loaded content loads;
 // returns the original scroll position and the page size.
-async function scrollThrough() {
+async function scrollThrough(steps = Infinity) {
   const d = document.scrollingElement || document.documentElement, x = scrollX, y = scrollY, w = d.scrollWidth, h = d.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
-  for (let i = 0; i < 100 && scrollY + innerHeight < h; i++) {
+  for (let i = 0; i < steps && scrollY + innerHeight < h; i++) {
     window.justsaveArm?.(); // a long scroll-through plus a 30s fast capture would outlast one 60s watchdog
     const before = scrollY;
     scrollBy({ top: innerHeight, behavior: 'instant' });
