@@ -97,8 +97,9 @@ function draw(s, pad = 0) {
     case 'arrow': return arrow(...s.pts);
     case 'rect': return line(rectD(s), '', fill);
     case 'ellipse': {
-      const rx = f((s.r - s.l) / 2), ry = f((s.b - s.t) / 2), cy = f(s.t + ry);
-      return line(`M${f(s.l)} ${cy}A${rx} ${ry} 0 1 0 ${f(s.r)} ${cy}A${rx} ${ry} 0 1 0 ${f(s.l)} ${cy}Z`, '', fill);
+      // radii are exactly half the rounded endpoints' distance, or a large arc overshoots the box
+      const [l, r, t, b] = [s.l, s.r, s.t, s.b].map(f), rx = (r - l) / 2, ry = (b - t) / 2, cy = t + ry;
+      return line(`M${l} ${cy}A${rx} ${ry} 0 1 0 ${r} ${cy}A${rx} ${ry} 0 1 0 ${l} ${cy}Z`, '', fill);
     }
     case 'cloud': return line(cloud(s), '', fill);
     case 'text': return pad ? `<path d="${rectD(bounds(s))}"/>` : text(s.x, s.y, c);
