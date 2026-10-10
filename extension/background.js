@@ -75,7 +75,7 @@ async function stitch(tab, full, start, inPage) {
       await checkActive();
       const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
       await checkActive();
-      frames.push({ ...m, img: await createImageBitmap(await (await fetch(shot)).blob()) });
+      frames.push({ ...m, png: await (await fetch(shot)).blob() }); // decoded one at a time while drawing: 100 full-res bitmaps can run the worker out of memory
       more = true;
       // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.
       x = m.x + m.vw - 1;
@@ -85,7 +85,8 @@ async function stitch(tab, full, start, inPage) {
   }
 
   // Stitch. Frame pixels per CSS px (devicePixelRatio x zoom); crop off both scrollbars.
-  const s = frames[0].img.width / frames[0].iw;
+  const first = await createImageBitmap(frames[0].png), s = first.width / frames[0].iw;
+  first.close();
   const cssW = Math.min(start.w, Math.max(...frames.map(f => f.x + f.vw))) - x0;
   const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
   const k = fit(cssW * s, cssH * s);
@@ -97,8 +98,9 @@ async function stitch(tab, full, start, inPage) {
   // Crop to whole device pixels: at fractional scaling (125%, 150%) a partial row would blend in the scrollbar.
   for (const f of frames) {
     const sw = Math.floor(f.vw * s), sh = Math.floor(f.vh * s);
-    ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
-    f.img.close(); // free each frame now: 100 full-res bitmaps can run the worker out of memory
+    const img = await createImageBitmap(f.png);
+    ctx.drawImage(img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
+    img.close();
   }
   const cut = frames.length >= MAX_FRAMES && cssH < start.h - y0;
   return { blob: await canvas.convertToBlob({ type: 'image/png' }), note: cut ? `Page too long: captured the first ${MAX_FRAMES} screens.` : undefined };

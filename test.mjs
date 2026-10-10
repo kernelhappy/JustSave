@@ -65,6 +65,18 @@ onMsg({ mode: 'visible', tab: { id: 2, index: 0, url: 'https://x.test/' } });
 await new Promise(r => setTimeout(r, 10));
 assert.strictEqual(dims.length, 1);
 assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
+// Full page: frames are decoded one at a time while drawing, not all held as bitmaps (100 4K frames run the worker out of memory).
+{
+  let live = 0, peak = 0;
+  const cib = globalThis.createImageBitmap, ex = chrome.scripting.executeScript;
+  globalThis.createImageBitmap = async () => { peak = Math.max(peak, ++live); return { width: 100, close() { live--; } }; };
+  chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
+  onMsg({ mode: 'full', tab: { id: 6, index: 0, url: 'https://x.test/' } });
+  await new Promise(r => setTimeout(r, 1500));
+  assert.strictEqual(dims.length, 2);
+  assert.strictEqual(peak, 1, 'frames held as decoded bitmaps');
+  globalThis.createImageBitmap = cib; chrome.scripting.executeScript = ex;
+}
 // Fast capture: output is CSS size x devicePixelRatio x clip.scale, and must fit the canvas limits too (result.js re-encodes it).
 let clip;
 chrome.debugger = { attach: async () => {}, detach: async () => {}, sendCommand: async (t, m, p) =>
