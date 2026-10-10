@@ -14,7 +14,13 @@
   #shot { display: block; }
   #stage.cropping { cursor: crosshair; touch-action: none; user-select: none; }
   #stage.cropping #shot { pointer-events: none; }
-  #sel { position: absolute; outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; pointer-events: none; }
+  #sel { position: absolute; outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; cursor: move; }
+  #sel i { position: absolute; width: 10px; height: 10px; background: #fff; border: 1px solid #000; }
+  #sel [data-h*=n] { top: 0; } #sel [data-h*=s] { bottom: 0; } #sel [data-h*=w] { left: 0; } #sel [data-h*=e] { right: 0; }
+  #sel [data-h=n], #sel [data-h=s] { left: calc(50% - 6px); cursor: ns-resize; }
+  #sel [data-h=e], #sel [data-h=w] { top: calc(50% - 6px); cursor: ew-resize; }
+  #sel [data-h=nw], #sel [data-h=se] { cursor: nwse-resize; }
+  #sel [data-h=ne], #sel [data-h=sw] { cursor: nesw-resize; }
   @media print {
     header, #sel { display: none; }
     body { background: none; }
@@ -42,7 +48,7 @@
   <span id="status" role="status"></span>
   <span id="zoombar">
     <button data-zoom="fit" title="Whole capture in the window">Fit</button>
-    <button data-zoom="width" title="Fit the width; scroll down">Fit width</button>
+    <button data-zoom="width" title="Fit the width and scroll down">Fit width</button>
     <button data-zoom="out" aria-label="Zoom out">−</button>
     <span id="zoom"></span>
     <button data-zoom="in" aria-label="Zoom in">+</button>
@@ -52,5 +58,5 @@
     <img id="logo" src="assets/logo-light.png" alt="JustSave">
   </picture>
 </header>
-<div id="stage"><img id="shot" alt="Captured page"><div id="sel" hidden></div></div>
+<div id="stage"><img id="shot" alt="Captured page"><div id="sel" hidden><i data-h="nw"></i><i data-h="n"></i><i data-h="ne"></i><i data-h="e"></i><i data-h="se"></i><i data-h="s"></i><i data-h="sw"></i><i data-h="w"></i></div></div>
 <script type="module" src="result.js"></script>

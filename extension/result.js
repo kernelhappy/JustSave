@@ -96,7 +96,7 @@ document.onclick = async ({ target }) => {
 // Zoom: 'fit' (whole capture), 'width', or a factor where 1 = actual size (one capture pixel per screen pixel).
 // The fit modes never enlarge past actual size.
 const shot = $('shot'), header = document.querySelector('header');
-let zoom = 'width', scale = 1;
+let zoom = 'fit', scale = 1;
 function applyZoom() {
   const w = shot.naturalWidth / devicePixelRatio, h = shot.naturalHeight / devicePixelRatio;
   if (!w) return;
@@ -113,10 +113,11 @@ $('zoombar').onclick = ({ target }) => {
   applyZoom();
 };
 
-// Crop: Crop starts a selection, a drag picks the area to keep, Enter or Apply crop keeps it, Esc cancels.
-// Undo crop goes back to the full capture. ponytail: no handles to adjust the box; drag again to redo it.
-let original, box;
+// Crop: Crop starts a selection. Drag to draw a box, then drag its handles to resize it or its inside to move it.
+// Enter or Apply crop keeps it, Esc cancels. Undo crop goes back to the full capture.
+let original, box; // box edges in capture pixels: { l, t, r, b }
 const stage = $('stage'), sel = $('sel'), clamp = (v, max) => Math.min(max, Math.max(0, v));
+const cropping = () => stage.classList.contains('cropping');
 function setShot(blob) {
   png = blob;
   URL.revokeObjectURL(shot.src);
@@ -131,9 +132,8 @@ function endCrop() {
   $('status').textContent = '';
 }
 async function applyCrop() {
-  const W = shot.naturalWidth, H = shot.naturalHeight;
   if (box) {
-    const x = Math.floor(box.x), y = Math.floor(box.y), w = Math.min(W - x, Math.round(box.w)), h = Math.min(H - y, Math.round(box.h));
+    const x = Math.floor(box.l), y = Math.floor(box.t), w = Math.round(box.r) - x, h = Math.round(box.b) - y;
     if (w > 0 && h > 0) {
       const img = await createImageBitmap(png, x, y, w, h), c = new OffscreenCanvas(w, h);
       c.getContext('2d').drawImage(img, 0, 0);
@@ -144,32 +144,40 @@ async function applyCrop() {
   endCrop();
 }
 $('crop').onclick = () => {
-  if (stage.classList.contains('cropping')) return applyCrop();
+  if (cropping()) return applyCrop();
   stage.classList.add('cropping');
   $('crop').textContent = 'Apply crop';
-  $('status').textContent = 'Drag over the capture to pick the area to keep. Esc cancels.';
+  $('status').textContent = 'Drag over the capture, then adjust with the handles. Enter applies, Esc cancels.';
 };
-$('uncrop').onclick = () => { setShot(original); original = null; $('uncrop').hidden = true; };
+$('uncrop').onclick = () => { const o = original; original = null; setShot(o); };
 onkeydown = e => {
-  if (!stage.classList.contains('cropping')) return;
+  if (!cropping()) return;
   if (e.key === 'Escape') endCrop();
   if (e.key === 'Enter') { e.preventDefault(); applyCrop(); }
 };
-// Box in capture pixels; the rect is re-read on every move so scrolling mid-drag still lines up.
+// Positions in capture pixels; the rect is re-read on every move so scrolling mid-drag still lines up.
 stage.onpointerdown = e => {
-  if (!stage.classList.contains('cropping') || e.button) return;
+  if (!cropping() || e.button) return;
   e.preventDefault();
   stage.setPointerCapture(e.pointerId);
-  const at = ev => {
-    const r = shot.getBoundingClientRect(), f = shot.naturalWidth / r.width;
-    return [clamp((ev.clientX - r.left) * f, shot.naturalWidth), clamp((ev.clientY - r.top) * f, shot.naturalHeight)];
-  };
+  const W = shot.naturalWidth, H = shot.naturalHeight;
+  const at = ev => { const r = shot.getBoundingClientRect(), f = W / r.width; return [(ev.clientX - r.left) * f, (ev.clientY - r.top) * f]; };
   const [x0, y0] = at(e);
+  // A handle drags its edges ('nw', 'e', ...), the box's inside moves it, anywhere else draws a new box from its 'se' corner.
+  const fresh = !e.target.dataset.h && e.target !== sel, edges = fresh ? 'se' : e.target.dataset.h;
+  const from = fresh ? { l: clamp(x0, W), t: clamp(y0, H), r: clamp(x0, W), b: clamp(y0, H) } : { ...box };
   stage.onpointermove = ev => {
-    const [x1, y1] = at(ev), W = shot.naturalWidth, H = shot.naturalHeight;
-    box = { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0), h: Math.abs(y1 - y0) };
+    const [x, y] = at(ev), dx = x - x0, dy = y - y0;
+    if (!edges) {
+      const mx = Math.min(W - from.r, Math.max(-from.l, dx)), my = Math.min(H - from.b, Math.max(-from.t, dy));
+      box = { l: from.l + mx, t: from.t + my, r: from.r + mx, b: from.b + my };
+    } else {
+      const l = edges.includes('w') ? clamp(from.l + dx, W) : from.l, r = edges.includes('e') ? clamp(from.r + dx, W) : from.r;
+      const t = edges.includes('n') ? clamp(from.t + dy, H) : from.t, b = edges.includes('s') ? clamp(from.b + dy, H) : from.b;
+      box = { l: Math.min(l, r), r: Math.max(l, r), t: Math.min(t, b), b: Math.max(t, b) }; // dragging past the far edge flips
+    }
     // Percentages keep the box in place when the zoom changes.
-    Object.assign(sel.style, { left: box.x / W * 100 + '%', top: box.y / H * 100 + '%', width: box.w / W * 100 + '%', height: box.h / H * 100 + '%' });
+    Object.assign(sel.style, { left: box.l / W * 100 + '%', top: box.t / H * 100 + '%', width: (box.r - box.l) / W * 100 + '%', height: (box.b - box.t) / H * 100 + '%' });
     sel.hidden = false;
   };
   stage.onpointerup = () => { stage.onpointermove = null; };
