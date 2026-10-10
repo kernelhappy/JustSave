@@ -154,12 +154,16 @@ function block() {
   const shield = document.createElement('div');
   shield.id = 'justsave-shield';
   shield.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:wait;background:transparent';
-  document.documentElement.append(shield);
+  // Root scroll snapping would move each programmatic scroll to a snap point: frames skip content or stop early.
+  const noSnap = document.createElement('style');
+  noSnap.textContent = 'html, body { scroll-snap-type: none !important }';
+  document.documentElement.append(shield, noSnap);
   window.justsaveStop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
   for (const t of ['wheel', 'keydown', 'touchmove']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
   window.justsaveUndo = () => {
     clearTimeout(window.justsaveDog);
     shield.remove();
+    noSnap.remove();
     for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
     for (const el of window.justsaveFrozen ?? []) {
       el.setAttribute('style', el.dataset.justsave);

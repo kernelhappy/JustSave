@@ -146,6 +146,16 @@ assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'wa
   win.justsaveUndo();
   assert(shields.every(s => s.gone) && live.length === 0, 'second block() left the first lock in place');
 }
+// block(): root scroll snapping would move each programmatic scroll to a snap point (skipped bands, early stop); it must be off while locked, and back on undo.
+{
+  const win = {}, made = [], root = [];
+  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', fn('block') + 'block();')(
+    win, { createElement: t => { const s = { tag: t, style: {}, remove() { root.splice(root.indexOf(s) >>> 0, 1); } }; made.push(s); return s; }, documentElement: { append: (...a) => root.push(...a) } },
+    () => {}, () => {}, () => 1, () => {});
+  assert(root.some(s => s.tag === 'style' && /html\s*,\s*body\s*\{\s*scroll-snap-type:\s*none\s*!important/.test(s.textContent)), 'scroll snapping left on during capture');
+  win.justsaveUndo();
+  assert.strictEqual(root.length, 0, 'undo left the snap override in place');
+}
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
