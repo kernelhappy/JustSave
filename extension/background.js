@@ -249,7 +249,7 @@ function freeze(hideFixed) {
   window.justsaveArm?.();
   // Open shadow roots too: web components can carry their own sticky headers.
   const els = [], walk = root => { for (const el of root.querySelectorAll('*')) { els.push(el); if (el.shadowRoot) walk(el.shadowRoot); } };
-  walk(document.body ?? document.documentElement);
+  walk(document.documentElement); // not body: widgets get appended next to <body> too
   for (const el of els) {
     const pos = getComputedStyle(el).position;
     if (pos !== 'sticky' && !(hideFixed && pos === 'fixed')) continue;

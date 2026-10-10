@@ -46,11 +46,12 @@ onMsg({ mode: 'visible', tab }); // lock released after the first capture finish
 await new Promise(r => setTimeout(r, 10));
 assert.strictEqual(injected.filter(n => n === 'here').length, 1);
 // freeze(): a sticky element turned relative must also drop its insets, or top:80px shifts it for good.
+// It walks all of <html>: widgets appended next to <body> must be frozen too (the fake body is empty).
 const src = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8').match(/function freeze[\s\S]*?\r?\n}\r?\n/)[0];
 const set = {}, el = { dataset: {}, getAttribute: () => null, style: { setProperty: (k, v) => { set[k] = v; } } };
 const shadowEl = { dataset: {}, getAttribute: () => null, style: { setProperty() { shadowEl.frozen = true; } } };
 const host = { shadowRoot: { querySelectorAll: () => [shadowEl] } }, win = {};
-new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')(win, { body: { querySelectorAll: () => [el, host] } }, e => ({ position: e === host ? 'static' : 'sticky' }));
+new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')(win, { body: { querySelectorAll: () => [] }, documentElement: { querySelectorAll: () => [el, host] } }, e => ({ position: e === host ? 'static' : 'sticky' }));
 assert(shadowEl.frozen && win.justsaveFrozen.has(shadowEl), 'freeze() skipped a shadow root');
 assert.strictEqual(set.position, 'relative');
 for (const k of ['top', 'right', 'bottom', 'left']) assert.strictEqual(set[k], 'auto', k);
