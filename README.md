@@ -17,7 +17,7 @@ A Chrome extension that captures the visible area or the entire page, then saves
   - **Full page (fast)**: one shot through Chrome's DevTools protocol. It's faster and has no seams, but full-height sections can stretch and embeds can come out blank.
 - **PNG, JPG or PDF**, with High, Medium and Low quality for JPG and PDF. PDFs are split into Letter pages, cut at the least busy row so text isn't sliced in half.
 - **Zoom** the preview (Fit, Fit width, − / +) and **Crop** it to the part you want before saving.
-- **Save…** (Chrome reopens the folder you used last), **Download**, **Copy** (as PNG) or **Print**.
+- **Save…** (Chrome reopens the folder you used last), **Copy** (as PNG) or **Print**.
 - Remembers your last format and quality. Files are named like `261009104405 - www.example.com`.
 
 ## Limitations
@@ -39,7 +39,6 @@ A Chrome extension that captures the visible area or the entire page, then saves
 |---|---|
 | `activeTab` | Capture the tab you clicked the extension on, and only that tab. |
 | `scripting` | Scroll the page and hide repeating sticky headers during a full-page capture. |
-| `downloads` | The **Download** button. |
 | `debugger` | **Full page (fast)** only. Chrome shows a "started debugging this browser" bar while it runs. |
 
 ## Privacy

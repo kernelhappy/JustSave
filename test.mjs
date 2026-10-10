@@ -106,7 +106,7 @@ new Function('window', 'document', 'addEventListener', 'removeEventListener', 's
 assert(timer, 'block() arms no watchdog');
 timer();
 assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'watchdog left the page locked');
-// fileName: Download rejects control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
+// fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
 // scrollThrough: stop when the page no longer scrolls (fractional zoom, unscrollable window) instead of looping 100x150ms.

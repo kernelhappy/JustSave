@@ -15,7 +15,7 @@ const id = location.hash.slice(1);
 const rec = await idb('readonly', s => s.get(id)).catch(console.error);
 if (rec) idb('readwrite', s => s.delete(id));
 const { name, note } = rec ?? {};
-let png = rec?.blob; // replaced by Crop; Save, Download, Copy and Print all use the current one, plus the markup
+let png = rec?.blob; // replaced by Crop; Save, Copy and Print all use the current one, plus the markup
 if (png) {
   document.title = name;
   $('shot').src = URL.createObjectURL(png);
@@ -67,11 +67,6 @@ const ACTIONS = {
       throw e;
     }
     return 'Saved ' + handle.name;
-  },
-  // Goes through Chrome's downloads, so it lands in Downloads and shows in download history.
-  async download(fmt) {
-    await chrome.downloads.download({ url: URL.createObjectURL(await encode(fmt)), filename: `${name}.${fmt}` });
-    return 'Downloaded';
   },
   // The clipboard only takes PNG images. Handing it the promise keeps the click's activation while the markup is drawn in.
   async copy() {
