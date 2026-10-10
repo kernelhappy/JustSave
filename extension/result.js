@@ -211,6 +211,8 @@ const dpr = devicePixelRatio;
 let shapes = [], hist = ['[]'], step = 0, off = { x: 0, y: 0 }, tool = 'select', cur = null, editing = null, lastDown = 0, gesture = false;
 const style = { pen: { c: '#e53935', w: 4 * dpr, size: 20 * dpr, fill: false }, hl: { c: '#fdd835', w: 4 * dpr } };
 const styleOf = type => type === 'hl' ? style.hl : style.pen;
+// Lines, pens and text have no fill, so Fill shows and toggles the default with one of them selected.
+const filled = s => s && 'fill' in s ? s.fill : style.pen.fill;
 const measure = new OffscreenCanvas(1, 1).getContext('2d');
 measure.font = '600 100px system-ui, sans-serif';
 
@@ -239,7 +241,7 @@ function render() {
   for (const b of $('tools').querySelectorAll('button')) {
     const d = b.dataset;
     if (d.cmd) b.disabled = d.cmd === 'undo' ? !step : d.cmd === 'redo' ? step === hist.length - 1 : !s;
-    else if (!d.size) b.setAttribute('aria-pressed', d.tool ? d.tool === tool : d.c ? d.c === now.c : d.w ? d.w * dpr === now.w : !!(s ? s.fill : style.pen.fill));
+    else if (!d.size) b.setAttribute('aria-pressed', d.tool ? d.tool === tool : d.c ? d.c === now.c : d.w ? d.w * dpr === now.w : filled(s));
   }
   $('tsize').textContent = Math.round((s?.size ?? style.pen.size) / dpr);
 }
@@ -287,7 +289,7 @@ $('tools').onclick = ({ target }) => {
     // Text size and fill only apply to some shapes, so they always come from and go to the main style.
     const k = d.c ? 'c' : d.w ? 'w' : d.size ? 'size' : 'fill' in d ? 'fill' : null;
     if (!k) return;
-    const v = k === 'c' ? d.c : k === 'w' ? d.w * dpr : k === 'size' ? nextSize((s?.size ?? style.pen.size) / dpr, +d.size) * dpr : !(s ? s.fill : style.pen.fill);
+    const v = k === 'c' ? d.c : k === 'w' ? d.w * dpr : k === 'size' ? nextSize((s?.size ?? style.pen.size) / dpr, +d.size) * dpr : !filled(s);
     (k === 'size' || k === 'fill' ? style.pen : styleOf(s?.type ?? tool))[k] = v;
     if (s && k in s) {
       shapes[cur] = { ...s, [k]: v };

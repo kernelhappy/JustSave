@@ -157,4 +157,17 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   edit.onblur();
   assert.strictEqual(ended, ends, `blur with ${active} focused`);
 }
+// Fill with a line selected toggles the default fill both ways (a line has no fill of its own).
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const style = { pen: { fill: false }, hl: {} }, shapes = [{ type: 'line', pts: [] }];
+  const tools = {};
+  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', `let gesture = false, cur = 0, tool = 'select', dpr = 1; ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
+    () => tools, shapes, style, () => style.pen, () => {}, () => {});
+  const click = () => tools.onclick({ target: { closest: () => ({ dataset: { fill: '' } }) } });
+  click();
+  assert.strictEqual(style.pen.fill, true);
+  click();
+  assert.strictEqual(style.pen.fill, false, 'second Fill click turns the default fill off');
+}
 console.log('ok');
