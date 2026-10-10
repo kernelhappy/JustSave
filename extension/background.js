@@ -32,7 +32,14 @@ async function capture(tab, mode) {
     const blob = mode === 'fast' ? await debuggerShot(tab.id) : await stitch(tab, full, start, inPage);
     const id = crypto.randomUUID();
     await idb('readwrite', st => st.put({ blob, name }, id));
-    await chrome.tabs.create({ url: 'result.html#' + id, index: tab.index + 1, openerTabId: tab.id });
+    try {
+      // Re-read the tab (it may have moved); create rejects an opener outside the target window, which defaults to the focused one.
+      const t = await chrome.tabs.get(tab.id);
+      await chrome.tabs.create({ url: 'result.html#' + id, windowId: t.windowId, index: t.index + 1, openerTabId: tab.id });
+    } catch (e) {
+      await idb('readwrite', st => st.delete(id)); // only result.js deletes it otherwise
+      throw e;
+    }
     badge('');
   } catch (e) {
     console.error(e);

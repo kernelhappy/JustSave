@@ -72,4 +72,21 @@ onMsg({ mode: 'fast', tab: { id: 3, index: 0, url: 'https://x.test/' } });
 await new Promise(r => setTimeout(r, 10));
 const out = [clip.width * 2 * clip.scale, clip.height * 2 * clip.scale];
 assert(out[0] <= 32767 && out[1] <= 32767 && out[0] * out[1] <= 268435456, 'fast capture ' + out);
+// Result tab handoff: open it in the source tab's current window (create rejects an opener in another window),
+// and if it still can't open, drop the stored capture instead of orphaning it in IndexedDB.
+const files = new Map(), req = r => { const q = { result: r }; setTimeout(() => q.onsuccess()); return q; };
+globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { transaction: () => ({ objectStore: () => ({ put: (v, k) => req(files.set(k, v)), delete: k => req(files.delete(k)) }) }) }; o.onsuccess(); }); return o; } };
+const created = [];
+chrome.tabs.get = async () => ({ active: true, windowId: 7, index: 4 });
+chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); };
+onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 5, url: 'https://x.test/' } });
+await new Promise(r => setTimeout(r, 50));
+assert.strictEqual(created.length, 1);
+assert.strictEqual(created[0].index, 5);
+assert.strictEqual(files.size, 1);
+files.clear();
+chrome.tabs.create = async () => { throw new Error('window closed'); };
+onMsg({ mode: 'visible', tab: { id: 5, index: 0, windowId: 7, url: 'https://x.test/' } });
+await new Promise(r => setTimeout(r, 50));
+assert.strictEqual(files.size, 0, 'orphaned capture');
 console.log('ok');
