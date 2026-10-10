@@ -96,7 +96,11 @@ assert(out[0] <= 32767 && out[1] <= 32767 && out[0] * out[1] <= 268435456, 'fast
 // and if it still can't open, drop the stored capture instead of orphaning it in IndexedDB.
 const files = new Map();
 globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { close() {}, transaction() {
-  const tx = { objectStore: () => ({ put: (v, k) => (files.set(k, v), {}), delete: k => (files.delete(k), {}) }) };
+  const tx = { objectStore: () => ({ put: (v, k) => (files.set(k, v), {}), delete: k => (files.delete(k), {}), openCursor() {
+    const req = {}, keys = [...files.keys()];
+    const step = () => setTimeout(() => { const k = keys.shift(); req.onsuccess?.({ target: { result: k === undefined ? null : { value: files.get(k), delete: () => files.delete(k), continue: step } } }); });
+    step(); return req;
+  } }) };
   setTimeout(() => tx.oncomplete());
   return tx;
 } }; o.onsuccess(); }); return o; } };
@@ -104,12 +108,14 @@ const created = [];
 chrome.tabs.get = async () => ({ active: true, windowId: 7, index: 4 });
 chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); return { id: 99 }; };
 const updated = [];
+files.set('stale', { blob: {} }); // left by a result tab that never loaded (closed, crash, worker died)
 chrome.tabs.update = async (id, p) => { updated.push([id, p]); };
 onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 7, url: 'https://x.test/' } }); // create defaults to the focused window, not 7
 await new Promise(r => setTimeout(r, 600));
 assert.strictEqual(created.length, 1);
 assert.strictEqual(created[0].index, 5);
 assert.strictEqual(files.size, 1);
+assert(!files.has('stale'), 'stale capture never swept from IndexedDB');
 // Memory Saver must not discard the result tab: result.js already deleted the record, so a reload loses the capture.
 assert.deepStrictEqual(updated, [[99, { autoDiscardable: false }]], 'result tab is discardable');
 files.clear();

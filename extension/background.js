@@ -40,7 +40,11 @@ async function capture(tab, mode) {
       : full || start.w ? await stitch(tab, full, start, inPage)
       : { blob: await (await fetch(await shotSlot().then(() => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })))).blob() };
     const id = crypto.randomUUID();
-    await idb('readwrite', st => st.put({ blob, name, note }, id));
+    await idb('readwrite', st => {
+      // Sweep handoffs no result tab picked up (tab closed before loading, crash, worker died, failed read).
+      st.openCursor().onsuccess = e => { const c = e.target.result; if (c) { if (!(c.value.at > Date.now() - 6e5)) c.delete(); c.continue(); } };
+      return st.put({ blob, name, note, at: Date.now() }, id);
+    });
     try {
       // Re-read the tab (it may have moved); create rejects an opener outside the target window, which defaults to the focused one.
       const t = await chrome.tabs.get(tab.id);
