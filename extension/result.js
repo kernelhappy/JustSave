@@ -35,12 +35,14 @@ for (const el of [$('format'), $('quality')]) {
 showQuality();
 
 async function encode(fmt) {
-  if (fmt === 'png' && !shapes.length) return png;
+  // Snapshot now: a crop or undo landing mid-encode must not pair this image with another offset (filled boxes redact).
+  const png0 = png, o = off, sh = shapes.slice();
+  if (fmt === 'png' && !sh.length) return png0;
   const quality = +$('quality').value;
-  const img = await createImageBitmap(png), c = new OffscreenCanvas(img.width, img.height), ctx = c.getContext('2d', { willReadFrequently: true });
+  const img = await createImageBitmap(png0), c = new OffscreenCanvas(img.width, img.height), ctx = c.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
-  if (shapes.length) {
-    const ink = new Image(), url = URL.createObjectURL(new Blob([toSvg(shapes, { ...off, w: img.width, h: img.height })], { type: 'image/svg+xml' }));
+  if (sh.length) {
+    const ink = new Image(), url = URL.createObjectURL(new Blob([toSvg(sh, { ...o, w: img.width, h: img.height })], { type: 'image/svg+xml' }));
     ink.src = url;
     await ink.decode().finally(() => URL.revokeObjectURL(url));
     ctx.drawImage(ink, 0, 0);
@@ -154,18 +156,20 @@ function endCrop() {
   $('crop').textContent = 'Crop';
   $('status').textContent = '';
 }
+// Leaves crop mode before the first await, so a repeat click or Enter can't apply twice and Esc has nothing left to cancel;
+// the new image and its offset are taken from one snapshot and set together.
 async function applyCrop() {
-  if (box) {
-    const x = Math.floor(box.l), y = Math.floor(box.t), w = Math.round(box.r) - x, h = Math.round(box.b) - y;
-    if (w > 0 && h > 0) {
-      const img = await createImageBitmap(png, x, y, w, h), c = new OffscreenCanvas(w, h);
-      c.getContext('2d').drawImage(img, 0, 0);
-      original ??= png;
-      off = { x: off.x + x, y: off.y + y };
-      setShot(await c.convertToBlob({ type: 'image/png' }));
-    }
-  }
+  const b = box, src = png, o = off;
   endCrop();
+  if (!b) return;
+  const x = Math.floor(b.l), y = Math.floor(b.t), w = Math.round(b.r) - x, h = Math.round(b.b) - y;
+  if (w <= 0 || h <= 0) return;
+  const img = await createImageBitmap(src, x, y, w, h), c = new OffscreenCanvas(w, h);
+  c.getContext('2d').drawImage(img, 0, 0);
+  const blob = await c.convertToBlob({ type: 'image/png' });
+  original ??= src;
+  off = { x: o.x + x, y: o.y + y };
+  setShot(blob);
 }
 $('crop').onclick = () => {
   if (cropping()) return applyCrop();
@@ -174,7 +178,7 @@ $('crop').onclick = () => {
   $('crop').textContent = 'Apply crop';
   $('status').textContent = 'Drag over the capture, then adjust with the handles. Enter applies, Esc cancels.';
 };
-$('uncrop').onclick = () => { const o = original; original = null; off = { x: 0, y: 0 }; setShot(o); };
+$('uncrop').onclick = () => { if (cropping()) endCrop(); const o = original; original = null; off = { x: 0, y: 0 }; setShot(o); };
 function cropDown(e) {
   const W = shot.naturalWidth, H = shot.naturalHeight, [x0, y0] = at(e);
   // A handle drags its edges ('nw', 'e', ...), the box's inside moves it, anywhere else draws a new box from its 'se' corner.
