@@ -45,4 +45,10 @@ assert.deepStrictEqual(injected.filter(n => n === 'block'), ['block']);
 onMsg({ mode: 'visible', tab }); // lock released after the first capture finished
 await new Promise(r => setTimeout(r, 10));
 assert.strictEqual(injected.filter(n => n === 'here').length, 1);
+// freeze(): a sticky element turned relative must also drop its insets, or top:80px shifts it for good.
+const src = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8').match(/function freeze[\s\S]*?\r?\n}\r?\n/)[0];
+const set = {}, el = { dataset: {}, getAttribute: () => null, style: { setProperty: (k, v) => { set[k] = v; } } };
+new Function('document', 'getComputedStyle', src + 'freeze(false);')({ querySelectorAll: () => [el] }, () => ({ position: 'sticky' }));
+assert.strictEqual(set.position, 'relative');
+for (const k of ['top', 'right', 'bottom', 'left']) assert.strictEqual(set[k], 'auto', k);
 console.log('ok');

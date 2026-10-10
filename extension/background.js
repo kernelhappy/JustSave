@@ -161,7 +161,7 @@ function freeze(hideFixed) {
     const pos = getComputedStyle(el).position;
     if (pos !== 'sticky' && !(hideFixed && pos === 'fixed')) continue;
     if (!('justsave' in el.dataset)) el.dataset.justsave = el.getAttribute('style') ?? '';
-    if (pos === 'sticky') el.style.setProperty('position', 'relative', 'important');
+    if (pos === 'sticky') for (const [k, v] of [['position', 'relative'], ['top', 'auto'], ['right', 'auto'], ['bottom', 'auto'], ['left', 'auto']]) el.style.setProperty(k, v, 'important'); // insets would offset a relative box
     else el.style.setProperty('opacity', '0', 'important');
   }
 }
