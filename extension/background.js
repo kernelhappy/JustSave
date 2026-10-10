@@ -132,14 +132,14 @@ function block() {
 }
 
 function here() {
-  const d = document.documentElement;
+  const d = document.scrollingElement || document.documentElement; // body in quirks mode
   return { x: scrollX, y: scrollY, w: d.scrollWidth, h: d.scrollHeight };
 }
 
 // Scroll through the page (as tall as it is now) so lazy-loaded content loads;
 // returns the original scroll position and the page size.
 async function scrollThrough() {
-  const x = scrollX, y = scrollY, w = document.documentElement.scrollWidth, h = document.documentElement.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
+  const d = document.scrollingElement || document.documentElement, x = scrollX, y = scrollY, w = d.scrollWidth, h = d.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
   for (let i = 0; i < 100 && scrollY + innerHeight < h; i++) {
     scrollBy({ top: innerHeight, behavior: 'instant' });
     await wait(150);
@@ -147,10 +147,10 @@ async function scrollThrough() {
   return { x, y, w, h };
 }
 
-// vw/vh: the viewport without scrollbars (standards-mode pages); iw: with them, to scale the frame.
+// vw/vh: the viewport without scrollbars (scrollingElement: body in quirks mode); iw: with them, to scale the frame.
 function scrollToXY(x, y) {
   scrollTo({ left: x, top: y, behavior: 'instant' });
-  const d = document.documentElement;
+  const d = document.scrollingElement || document.documentElement;
   return { x: scrollX, y: scrollY, vw: d.clientWidth, vh: d.clientHeight, iw: innerWidth };
 }
 
