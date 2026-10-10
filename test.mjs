@@ -261,6 +261,9 @@ assert.doesNotMatch(svg, /opacity="0"/); // hit outlines only on screen
 // Constants scale with dpr like the widths do: 2x the width at dpr 2 draws 2x the arrowhead and scallops.
 assert.match(toSvg([{ type: 'arrow', c: 'red', w: 4, pts: [[0, 0], [1000, 0]] }], { x: 0, y: 0, w: 9, h: 9 }, 0, 2), /M1000 0L964 18L964 -18Z/); // head 3 * 4 + 12 * 2 = 36 long
 assert.strictEqual(toSvg([{ type: 'cloud', c: 'red', w: 1, l: 0, t: 0, r: 100, b: 50 }], { x: 0, y: 0, w: 100, h: 50 }, 0, 2).match(/A\d/g).length, 4 + 2 + 4 + 2); // 24-px scallops
+// A shape keeps the dpr it was drawn at, so later zoom changes don't change its export (bughunt L3 export-r1-3).
+assert.match(toSvg([{ type: 'arrow', c: 'red', w: 4, dpr: 1, pts: [[0, 0], [1000, 0]] }], { x: 0, y: 0, w: 9, h: 9 }, 0, 2), /M1000 0L976 12L976 -12Z/);
+assert.strictEqual(toSvg([{ type: 'cloud', c: 'red', w: 1, dpr: 1, l: 0, t: 0, r: 100, b: 50 }], { x: 0, y: 0, w: 100, h: 50 }, 0, 2).match(/A\d/g).length, 8 + 4 + 8 + 4);
 const odd = toSvg([{ type: 'text', c: 'red', size: 10, em: 1, x: 0, y: 0, text: 'a\f\v\u0000\u001b￾￿\ud800b\tc' }], { x: 0, y: 0, w: 9, h: 9 });
 assert.doesNotMatch(odd, /[^\n\r -퟿-�\u{10000}-\u{10ffff}]/u); // only XML-legal characters, or the export can't decode it
 assert.match(odd, />ab c</); // a tab draws as the one space it's measured as

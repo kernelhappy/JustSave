@@ -354,9 +354,11 @@ addEventListener('beforeprint', finishEdit);
 function newShape(p) {
   const { c, w, size } = styleOf(tool);
   if (tool === 'pen' || tool === 'hl') return { type: tool, c, w, pts: [p] };
-  if (tool === 'line' || tool === 'arrow') return { type: tool, c, w, pts: [p, p] };
-  if (tool === 'callout') return { type: tool, c, w, size, x: p[0], y: p[1], text: '', em: 0, tip: p };
-  return { type: tool, c, w, fill: style.pen.fill, l: p[0], t: p[1], r: p[0], b: p[1] };
+  if (tool === 'line') return { type: tool, c, w, pts: [p, p] };
+  // dpr: arrowheads, callout pointers and cloud scallops keep the minimum size they had when drawn
+  if (tool === 'arrow') return { type: tool, c, w, dpr, pts: [p, p] };
+  if (tool === 'callout') return { type: tool, c, w, dpr, size, x: p[0], y: p[1], text: '', em: 0, tip: p };
+  return { type: tool, c, w, dpr, fill: style.pen.fill, l: p[0], t: p[1], r: p[0], b: p[1] };
 }
 const atInk = ev => { const [x, y] = at(ev); return [x + off.x, y + off.y]; };
 // A handle of the selected shape resizes it; otherwise Select picks and moves, Text places or edits on release, and the rest draw.

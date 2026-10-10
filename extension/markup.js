@@ -83,6 +83,7 @@ function cloud({ l, t, r, b, w }, dpr) {
 
 // pad > 0 draws a pad-wider outline instead, for hit testing.
 function draw(s, pad = 0, dpr = 1) {
+  dpr = s.dpr ?? dpr; // the dpr the shape was drawn at, so zooming later doesn't change its export
   const { c } = s, w = (s.type === 'hl' ? s.w * 4 : s.w) + pad, fill = s.fill ? c : 'none';
   const line = (d, more = '', fill = 'none') => `<path d="${d}" fill="${fill}" stroke="${c}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${more}/>`;
   const arrow = ([x0, y0], [x1, y1]) => {
