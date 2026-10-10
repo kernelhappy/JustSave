@@ -89,8 +89,8 @@ function draw(s, pad = 0) {
     const bx = x1 - ux * L, by = y1 - uy * L, hw = L / 2;
     return line(`M${f(x0)} ${f(y0)}L${f(x1 - ux * k)} ${f(y1 - uy * k)}`) + `<path d="M${f(x1)} ${f(y1)}L${f(bx - uy * hw)} ${f(by + ux * hw)}L${f(bx + uy * hw)} ${f(by - ux * hw)}Z" fill="${c}"/>`;
   };
-  const text = (x, y, fill) => `<text font-family="system-ui, sans-serif" font-weight="600" font-size="${f(s.size)}" fill="${fill}" style="white-space:pre">` +
-    s.text.split('\n').map((t, i) => `<tspan x="${f(x)}" y="${f(y + s.size * (i * LH + 0.95))}">${esc(t)}</tspan>`).join('') + '</text>';
+  const text = (x, y, fill) => `<text font-family="system-ui, sans-serif" font-weight="600" font-size="${f(s.size)}" fill="${fill}" dominant-baseline="central" style="white-space:pre">` +
+    s.text.split('\n').map((t, i) => `<tspan x="${f(x)}" y="${f(y + s.size * (i + 0.5) * LH)}">${esc(t)}</tspan>`).join('') + '</text>';
   switch (s.type) {
     case 'pen': case 'line': return line(path(s.pts));
     case 'hl': return line(path(s.pts), ' stroke-opacity="0.4"');
