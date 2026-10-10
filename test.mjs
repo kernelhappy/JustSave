@@ -264,4 +264,27 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
     assert.ok(style.pen.w === 4 * r && style.pen.size === 20 * r && style.hl.w === 8 * r, `at ${r}: ${JSON.stringify(style)}`);
   }
 }
+// Crop swap: from Apply crop until the new image has loaded, a gesture would mix the old image's geometry with the new offset.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8'), m = re => src.match(re)[0];
+  let release, downs = 0;
+  const stage = { classList: { contains: c => c === 'marking', remove() {} }, setPointerCapture() {} }, shot = {}, el = { style: {} };
+  const t = new Function('$', 'stage', 'shot', 'sel', 'edit', 'document', 'URL', 'OffscreenCanvas', 'createImageBitmap', 'cropping', 'marking', 'cropDown', 'markDown', 'applyZoom',
+    `let gesture = false, editing = null, swapping = false, png = 'old', off = { x: 0, y: 0 }, original, box = { l: 2, t: 2, r: 6, b: 6 };
+    ${m(/function setShot\([\s\S]*?\n\}/)} ${m(/function endCrop\([\s\S]*?\n\}/)} ${m(/async function applyCrop\([\s\S]*?\n\}/)}
+    ${m(/stage\.onpointerdown = [\s\S]*?\n\};/)} ${m(/stage\.onpointercancel = [\s\S]*?\n\};/)} ${m(/shot\.onload = .*/)} return applyCrop;`)(
+    () => el, stage, shot, el, {}, { activeElement: { blur() {} } }, { createObjectURL: () => 'blob:new', revokeObjectURL() {} },
+    class { getContext() { return { drawImage() {} }; } convertToBlob() { return 'new'; } }, () => new Promise(r => { release = r; }),
+    () => false, () => true, () => downs++, () => downs++, () => {});
+  const down = () => stage.onpointerdown({ button: 0, pointerId: 1, target: {}, preventDefault() {} }) || stage.onlostpointercapture({});
+  const applying = t();
+  down();
+  release({});
+  await applying;
+  down();
+  assert.strictEqual(downs, 0, 'gesture started while the cropped image was swapping in');
+  shot.onload();
+  down();
+  assert.strictEqual(downs, 1);
+}
 console.log('ok');
