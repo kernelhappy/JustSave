@@ -315,6 +315,12 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   assert.ok(prevented === 1 && ran[0] === 'print', 'Ctrl+P on a non-Latin layout was not intercepted');
   g({ ctrlKey: true, key: 'l', code: 'KeyP', target: { tagName: 'BODY' }, preventDefault: () => prevented++ }); // Dvorak Ctrl+L
   assert.ok(prevented === 1 && ran.length === 1, 'Ctrl+L on Dvorak was taken for print');
+  const steps = [];
+  const h = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    () => {}, () => {}, () => false, () => false, () => {}, {}, d => steps.push(d), () => {}, { dataset: {} });
+  h({ metaKey: true, key: 'z', target: { tagName: 'BODY' }, preventDefault: () => {} });
+  h({ metaKey: true, shiftKey: true, key: 'z', target: { tagName: 'BODY' }, preventDefault: () => {} });
+  assert.deepStrictEqual(steps, [-1, 1], 'Cmd+Z / Cmd+Shift+Z did not undo / redo');
 }
 // Fit in a window shorter than the header must not go to a zero or negative scale.
 {

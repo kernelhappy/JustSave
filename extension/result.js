@@ -477,7 +477,7 @@ onkeydown = e => {
     return;
   }
   const k = e.key.toLowerCase();
-  if (e.ctrlKey && (k === 'z' || k === 'y')) {
+  if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
     e.preventDefault();
     go(k === 'y' || e.shiftKey ? 1 : -1);
   } else if (marking() && (e.key === 'Delete' || e.key === 'Backspace') && e.target.tagName !== 'SELECT') remove();
