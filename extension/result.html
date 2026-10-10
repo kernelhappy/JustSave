@@ -3,7 +3,7 @@
 <title>JustSave</title>
 <style>
   :root { color-scheme: light dark; }
-  body { margin: 0; font: 14px system-ui, sans-serif; background: light-dark(#e8e8e8, #18191c); }
+  body { margin: 0; width: fit-content; min-width: 100%; box-sizing: border-box; padding: 0 16px; /* a zoomed-in stage overflows, where auto margins give no gutter */ font: 14px system-ui, sans-serif; background: light-dark(#e8e8e8, #18191c); }
   header { position: fixed; top: 0; left: 0; right: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: light-dark(#fff, #202124); box-shadow: 0 1px 4px #0003; }
   #zoombar { margin-left: auto; display: flex; gap: 4px; align-items: center; }
   #zoom { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
