@@ -416,6 +416,7 @@ onkeydown = e => {
   } else if (marking() && (e.key === 'Delete' || e.key === 'Backspace')) remove();
   else if (marking() && e.key === 'Escape') {
     cur = null;
+    tool = stage.dataset.tool = 'select';
     render();
   }
 };
