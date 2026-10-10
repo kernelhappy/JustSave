@@ -9,6 +9,10 @@ const MAX_FRAMES = 100;
 
 // Tabs with a capture in progress: a second one would re-inject block() and interleave scrolling.
 const busy = new Set();
+// captureVisibleTab allows 2 calls/s per extension, not per tab: concurrent captures share one pacing.
+// Each slot opens 510ms after the previous one actually opened, so a late timer can't squeeze two calls together.
+let shots = Promise.resolve();
+const shotSlot = () => { const slot = shots; shots = slot.then(() => sleep(510)); return slot; };
 
 chrome.runtime.onMessage.addListener(({ mode, tab }) => {
   if (busy.has(tab.id)) return;
@@ -32,13 +36,15 @@ async function capture(tab, mode) {
     start = (await inPage(full ? scrollThrough : here).catch(e => { if (full) throw e; })) ?? start;
     const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
       : full || start.w ? await stitch(tab, full, start, inPage)
-      : { blob: await (await fetch(await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }))).blob() };
+      : { blob: await (await fetch(await shotSlot().then(() => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })))).blob() };
     const id = crypto.randomUUID();
     await idb('readwrite', st => st.put({ blob, name, note }, id));
     try {
       // Re-read the tab (it may have moved); create rejects an opener outside the target window, which defaults to the focused one.
       const t = await chrome.tabs.get(tab.id);
-      await chrome.tabs.create({ url: 'result.html#' + id, windowId: t.windowId, index: t.index + 1, openerTabId: tab.id });
+      const r = await chrome.tabs.create({ url: 'result.html#' + id, windowId: t.windowId, index: t.index + 1, openerTabId: tab.id });
+      // result.js deletes the record on load, so a discarded result tab would reload to nothing.
+      chrome.tabs.update(r.id, { autoDiscardable: false }).catch(() => {});
     } catch (e) {
       await idb('readwrite', st => st.delete(id)); // only result.js deletes it otherwise
       throw e;
@@ -70,12 +76,13 @@ async function stitch(tab, full, start, inPage) {
       if (frames.some(f => f.x === m.x && f.y === m.y)) break; // scroll clamped at the edge: nothing new
       if (full) {
         await inPage(freeze, frames.length > 0);
-        await sleep(600); // let content settle; captureVisibleTab is also rate-limited to 2/sec
+        await sleep(600); // let content settle
       }
+      await shotSlot(); // before checkActive, so a wait can't let a tab switch slip in
       await checkActive();
       const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
       await checkActive();
-      frames.push({ ...m, img: await createImageBitmap(await (await fetch(shot)).blob()) });
+      frames.push({ ...m, png: await (await fetch(shot)).blob() }); // decoded one at a time while drawing: 100 full-res bitmaps can run the worker out of memory
       more = true;
       // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.
       x = m.x + m.vw - 1;
@@ -85,7 +92,8 @@ async function stitch(tab, full, start, inPage) {
   }
 
   // Stitch. Frame pixels per CSS px (devicePixelRatio x zoom); crop off both scrollbars.
-  const s = frames[0].img.width / frames[0].iw;
+  const first = await createImageBitmap(frames[0].png), s = first.width / frames[0].iw;
+  first.close();
   const cssW = Math.min(start.w, Math.max(...frames.map(f => f.x + f.vw))) - x0;
   const cssH = Math.min(start.h, Math.max(...frames.map(f => f.y + f.vh))) - y0;
   const k = fit(cssW * s, cssH * s);
@@ -97,8 +105,9 @@ async function stitch(tab, full, start, inPage) {
   // Crop to whole device pixels: at fractional scaling (125%, 150%) a partial row would blend in the scrollbar.
   for (const f of frames) {
     const sw = Math.floor(f.vw * s), sh = Math.floor(f.vh * s);
-    ctx.drawImage(f.img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
-    f.img.close(); // free each frame now: 100 full-res bitmaps can run the worker out of memory
+    const img = await createImageBitmap(f.png);
+    ctx.drawImage(img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
+    img.close();
   }
   const cut = frames.length >= MAX_FRAMES && cssH < start.h - y0;
   return { blob: await canvas.convertToBlob({ type: 'image/png' }), note: cut ? `Page too long: captured the first ${MAX_FRAMES} screens.` : undefined };
@@ -146,12 +155,16 @@ function block() {
   const shield = document.createElement('div');
   shield.id = 'justsave-shield';
   shield.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:wait;background:transparent';
-  document.documentElement.append(shield);
+  // Root scroll snapping would move each programmatic scroll to a snap point: frames skip content or stop early.
+  const noSnap = document.createElement('style');
+  noSnap.textContent = 'html, body { scroll-snap-type: none !important }';
+  document.documentElement.append(shield, noSnap);
   window.justsaveStop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
   for (const t of ['wheel', 'keydown', 'touchmove']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
   window.justsaveUndo = () => {
     clearTimeout(window.justsaveDog);
     shield.remove();
+    noSnap.remove();
     for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
     for (const el of window.justsaveFrozen ?? []) {
       el.setAttribute('style', el.dataset.justsave);

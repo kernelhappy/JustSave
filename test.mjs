@@ -62,9 +62,21 @@ globalThis.fetch = async () => ({ blob: async () => ({}) });
 chrome.tabs = { get: async () => ({ active: true }), captureVisibleTab: async () => '', create() {} };
 chrome.scripting.executeScript = async ({ func }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: 0, vw: 5531, vh: 21715, iw: 5531 } : { x: 0, y: 0, w: 5531, h: 21715 } }];
 onMsg({ mode: 'visible', tab: { id: 2, index: 0, url: 'https://x.test/' } });
-await new Promise(r => setTimeout(r, 10));
+await new Promise(r => setTimeout(r, 600)); // waits out the shared captureVisibleTab pacing
 assert.strictEqual(dims.length, 1);
 assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
+// Full page: frames are decoded one at a time while drawing, not all held as bitmaps (100 4K frames run the worker out of memory).
+{
+  let live = 0, peak = 0;
+  const cib = globalThis.createImageBitmap, ex = chrome.scripting.executeScript;
+  globalThis.createImageBitmap = async () => { peak = Math.max(peak, ++live); return { width: 100, close() { live--; } }; };
+  chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
+  onMsg({ mode: 'full', tab: { id: 6, index: 0, url: 'https://x.test/' } });
+  await new Promise(r => setTimeout(r, 1500));
+  assert.strictEqual(dims.length, 2);
+  assert.strictEqual(peak, 1, 'frames held as decoded bitmaps');
+  globalThis.createImageBitmap = cib; chrome.scripting.executeScript = ex;
+}
 // Fast capture: output is CSS size x devicePixelRatio x clip.scale, and must fit the canvas limits too (result.js re-encodes it).
 let clip;
 chrome.debugger = { attach: async () => {}, detach: async () => {}, sendCommand: async (t, m, p) =>
@@ -85,17 +97,35 @@ globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { 
 } }; o.onsuccess(); }); return o; } };
 const created = [];
 chrome.tabs.get = async () => ({ active: true, windowId: 7, index: 4 });
-chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); };
+chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); return { id: 99 }; };
+const updated = [];
+chrome.tabs.update = async (id, p) => { updated.push([id, p]); };
 onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 7, url: 'https://x.test/' } }); // create defaults to the focused window, not 7
-await new Promise(r => setTimeout(r, 50));
+await new Promise(r => setTimeout(r, 600));
 assert.strictEqual(created.length, 1);
 assert.strictEqual(created[0].index, 5);
 assert.strictEqual(files.size, 1);
+// Memory Saver must not discard the result tab: result.js already deleted the record, so a reload loses the capture.
+assert.deepStrictEqual(updated, [[99, { autoDiscardable: false }]], 'result tab is discardable');
 files.clear();
 chrome.tabs.create = async () => { throw new Error('window closed'); };
 onMsg({ mode: 'visible', tab: { id: 5, index: 0, windowId: 7, url: 'https://x.test/' } });
-await new Promise(r => setTimeout(r, 50));
+await new Promise(r => setTimeout(r, 600));
 assert.strictEqual(files.size, 0, 'orphaned capture');
+// captureVisibleTab's 2 calls/s quota is per extension: concurrent captures in two tabs must share the pacing.
+{
+  const at = [], cvt = chrome.tabs.captureVisibleTab, ex = chrome.scripting.executeScript;
+  chrome.tabs.create = async () => ({ id: 98 });
+  chrome.tabs.get = async id => ({ active: true, windowId: id === 11 ? 8 : 7, index: 0 });
+  chrome.tabs.captureVisibleTab = async () => { at.push(performance.now()); return ''; };
+  chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
+  onMsg({ mode: 'full', tab: { id: 10, index: 0, windowId: 7, url: 'https://x.test/' } });
+  onMsg({ mode: 'full', tab: { id: 11, index: 0, windowId: 8, url: 'https://x.test/' } });
+  await new Promise(r => setTimeout(r, 2500));
+  assert.strictEqual(at.length, 4);
+  at.sort((a, b) => a - b).slice(1).forEach((t, i) => assert(t - at[i] >= 500, 'captureVisibleTab calls ' + (t - at[i]).toFixed(1) + 'ms apart'));
+  chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex;
+}
 // Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
 const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
 let timer, shield = { style: {}, remove() { shield.gone = true; } };
@@ -115,6 +145,16 @@ assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'wa
   run(); run();
   win.justsaveUndo();
   assert(shields.every(s => s.gone) && live.length === 0, 'second block() left the first lock in place');
+}
+// block(): root scroll snapping would move each programmatic scroll to a snap point (skipped bands, early stop); it must be off while locked, and back on undo.
+{
+  const win = {}, made = [], root = [];
+  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', fn('block') + 'block();')(
+    win, { createElement: t => { const s = { tag: t, style: {}, remove() { root.splice(root.indexOf(s) >>> 0, 1); } }; made.push(s); return s; }, documentElement: { append: (...a) => root.push(...a) } },
+    () => {}, () => {}, () => 1, () => {});
+  assert(root.some(s => s.tag === 'style' && /html\s*,\s*body\s*\{\s*scroll-snap-type:\s*none\s*!important/.test(s.textContent)), 'scroll snapping left on during capture');
+  win.justsaveUndo();
+  assert.strictEqual(root.length, 0, 'undo left the snap override in place');
 }
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
@@ -174,7 +214,7 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
   const style = { pen: { fill: false }, hl: {} }, shapes = [{ type: 'line', pts: [] }];
   const tools = {};
-  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', `let gesture = false, cur = 0, tool = 'select', dpr = 1; ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
+  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', `let gesture = false, cur = 0, editing = null, tool = 'select', dpr = 1; ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
     () => tools, shapes, style, () => style.pen, () => {}, () => {});
   const click = () => tools.onclick({ target: { closest: () => ({ dataset: { fill: '' } }) } });
   click();
@@ -223,5 +263,45 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
     assert.equal(get(), r);
     assert.ok(style.pen.w === 4 * r && style.pen.size === 20 * r && style.hl.w === 8 * r, `at ${r}: ${JSON.stringify(style)}`);
   }
+}
+// Crop swap: from Apply crop until the new image has loaded, a gesture would mix the old image's geometry with the new offset.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8'), m = re => src.match(re)[0];
+  let release, downs = 0;
+  const stage = { classList: { contains: c => c === 'marking', remove() {} }, setPointerCapture() {} }, shot = {}, el = { style: {} };
+  const t = new Function('$', 'stage', 'shot', 'sel', 'edit', 'document', 'URL', 'OffscreenCanvas', 'createImageBitmap', 'cropping', 'marking', 'cropDown', 'markDown', 'applyZoom',
+    `let gesture = false, editing = null, swapping = false, png = 'old', off = { x: 0, y: 0 }, original, box = { l: 2, t: 2, r: 6, b: 6 };
+    ${m(/function setShot\([\s\S]*?\n\}/)} ${m(/function endCrop\([\s\S]*?\n\}/)} ${m(/async function applyCrop\([\s\S]*?\n\}/)}
+    ${m(/stage\.onpointerdown = [\s\S]*?\n\};/)} ${m(/stage\.onpointercancel = [\s\S]*?\n\};/)} ${m(/shot\.onload = .*/)} return applyCrop;`)(
+    () => el, stage, shot, el, {}, { activeElement: { blur() {} } }, { createObjectURL: () => 'blob:new', revokeObjectURL() {} },
+    class { getContext() { return { drawImage() {} }; } convertToBlob() { return 'new'; } }, () => new Promise(r => { release = r; }),
+    () => false, () => true, () => downs++, () => downs++, () => {});
+  const down = () => stage.onpointerdown({ button: 0, pointerId: 1, target: {}, preventDefault() {} }) || stage.onlostpointercapture({});
+  const applying = t();
+  down();
+  release({});
+  await applying;
+  down();
+  assert.strictEqual(downs, 0, 'gesture started while the cropped image was swapping in');
+  shot.onload();
+  down();
+  assert.strictEqual(downs, 1);
+}
+// Toolbar presses while a new text is open: the editor keeps focus (so blur can't delete the empty text first), a swatch styles the pending text, Undo only cancels it.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const style = { pen: { c: 'red', size: 20 }, text: { c: 'red' } }, shapes = [{ type: 'text', c: 'red', size: 20, text: '' }], tools = {}, log = [];
+  new Function('$', 'shapes', 'style', 'styleOf', 'commit', 'render', 'finishEdit', 'go', 'edit', 'log', `let gesture = false, cur = 0, editing = 0, tool = 'text', dpr = 1; const stage = { dataset: {} };
+    ${src.match(/const filled = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onmousedown = .*/)?.[0]}; ${src.match(/\$\('tools'\)\.onclick = [\s\S]*?\n};/)[0]}`)(
+    () => tools, shapes, style, () => style.text, () => log.push('commit'), () => {}, () => log.push('finish'), () => log.push('go'), { value: '' }, log);
+  let prevented = 0;
+  tools.onmousedown({ preventDefault: () => prevented++ });
+  assert.strictEqual(prevented, 1, 'toolbar press moved focus out of the editor');
+  tools.onclick({ target: { closest: () => ({ dataset: { c: 'blue' } }) } });
+  assert.strictEqual(shapes[0].c, 'blue', 'swatch did not style the pending text');
+  assert.ok(!log.includes('commit'), 'swatch committed an empty text');
+  log.length = 0;
+  tools.onclick({ target: { closest: () => ({ dataset: { cmd: 'undo' } }) } });
+  assert.ok(!log.includes('go'), 'Undo on an empty new text also undid the previous commit');
 }
 console.log('ok');

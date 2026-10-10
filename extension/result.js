@@ -121,7 +121,9 @@ function applyZoom() {
   $('zoom').textContent = Math.round(scale * 100) + '%';
   render();
 }
-shot.onload = applyZoom;
+// While a crop or Undo crop swaps the image, gestures wait: until it loads, the old image's geometry would meet the new offset.
+let swapping = false;
+shot.onload = () => { swapping = false; applyZoom(); };
 onresize = () => { syncDpr(); applyZoom(); };
 const zoomBy = f => { zoom = Math.min(8, Math.max(0.05, scale * f)); applyZoom(); };
 $('zoombar').onclick = ({ target }) => {
@@ -156,6 +158,7 @@ function place(el, b, o = { x: 0, y: 0 }) {
 let original, box; // box edges in capture pixels: { l, t, r, b }
 const clamp = (v, max) => Math.min(max, Math.max(0, v));
 function setShot(blob) {
+  swapping = true;
   png = blob;
   URL.revokeObjectURL(shot.src);
   shot.src = URL.createObjectURL(blob);
@@ -176,13 +179,18 @@ async function applyCrop() {
   if (!b) return;
   const x = Math.floor(b.l), y = Math.floor(b.t), w = Math.round(b.r) - x, h = Math.round(b.b) - y;
   if (w <= 0 || h <= 0) return;
-  const img = await createImageBitmap(src, x, y, w, h), c = new OffscreenCanvas(w, h);
-  c.getContext('2d').drawImage(img, 0, 0);
-  const blob = await c.convertToBlob({ type: 'image/png' });
-  if (png !== src) return; // Undo crop landed meanwhile; applying now would make original a cropped image
-  original ??= src;
-  off = { x: o.x + x, y: o.y + y };
-  setShot(blob);
+  swapping = true;
+  try {
+    const img = await createImageBitmap(src, x, y, w, h), c = new OffscreenCanvas(w, h);
+    c.getContext('2d').drawImage(img, 0, 0);
+    const blob = await c.convertToBlob({ type: 'image/png' });
+    if (png !== src) return; // Undo crop landed meanwhile; applying now would make original a cropped image
+    original ??= src;
+    off = { x: o.x + x, y: o.y + y };
+    setShot(blob);
+  } finally {
+    if (png === src) swapping = false; // failed: no new image is coming
+  }
 }
 $('crop').onclick = () => {
   if (cropping()) return applyCrop();
@@ -288,9 +296,17 @@ function setMarking(on) {
 }
 $('markup').onclick = () => setMarking(!marking());
 stage.dataset.tool = tool;
+// A press must not blur an open text editor: finishEdit would delete an empty new text before the click lands.
+$('tools').onmousedown = e => e.preventDefault();
 $('tools').onclick = ({ target }) => {
   if (gesture) return;
   const d = target.closest('button')?.dataset ?? {}, s = shapes[cur];
+  // Tool, Undo, Redo and Delete end an open edit first; on an empty new text that just cancels it, so Undo doesn't also undo the last commit.
+  if (editing != null && (d.tool || d.cmd)) {
+    const empty = !edit.value.trimEnd();
+    finishEdit();
+    if (empty && d.cmd) return render();
+  }
   if (d.tool) {
     tool = stage.dataset.tool = d.tool;
     cur = null;
@@ -304,7 +320,7 @@ $('tools').onclick = ({ target }) => {
     (k === 'size' || k === 'fill' ? style.pen : styleOf(s?.type ?? tool))[k] = v;
     if (s && k in s) {
       shapes[cur] = { ...s, [k]: v };
-      return commit();
+      return editing == null ? commit() : render(); // an open edit commits its style with its text
     }
   }
   render();
@@ -420,7 +436,7 @@ function markDown(e) {
 // One gesture at a time: while a drag holds the pointer, other pointers and the editing keys wait, since its handlers hold a fixed shape index.
 // Losing the capture (release, pointercancel) ends the gesture as a release would, so hover can't keep drawing.
 stage.onpointerdown = e => {
-  if (gesture || e.button || !(cropping() || marking()) || e.target === edit) return;
+  if (gesture || swapping || e.button || !(cropping() || marking()) || e.target === edit) return;
   if (editing != null) return finishEdit();
   e.preventDefault(); // which also keeps focus where it was, so drop it from the toolbar: a focus ring there looks like the active tool
   document.activeElement.blur();
