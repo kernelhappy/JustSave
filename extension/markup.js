@@ -65,7 +65,7 @@ export function resize(s, h, dx, dy) {
   if (!s.size) return { ...s, ...to };
   // Text scales with its box, anchored at the corner opposite the handle.
   // Handles are corners, so the axis dragged further sets the scale; a drag past the anchor puts the text on its other side.
-  const kx = (to.r - to.l) / (from.r - from.l), ky = (to.b - to.t) / (from.b - from.t), k = Math.abs(kx - 1) > Math.abs(ky - 1) ? kx : ky;
+  const kx = from.r === from.l ? 1 : (to.r - to.l) / (from.r - from.l), ky = (to.b - to.t) / (from.b - from.t), k = Math.abs(kx - 1) > Math.abs(ky - 1) ? kx : ky;
   const n = { ...s, size: Math.max(4, s.size * k) }, b = bounds(n), ax = h.includes('w') ? from.r : from.l, ay = h.includes('n') ? from.b : from.t;
   return { ...n, x: to.l === ax ? ax : ax - (b.r - b.l), y: to.t === ay ? ay : ay - (b.b - b.t) };
 }
