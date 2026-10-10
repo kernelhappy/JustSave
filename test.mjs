@@ -106,6 +106,16 @@ new Function('window', 'document', 'addEventListener', 'removeEventListener', 's
 assert(timer, 'block() arms no watchdog');
 timer();
 assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'watchdog left the page locked');
+// block() again after a service worker restart (busy flag lost): the earlier lock must not survive one undo.
+{
+  const win = {}, shields = [], live = [];
+  const run = () => new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', fn('block') + 'block();')(
+    win, { createElement: () => { const s = { style: {}, remove() { s.gone = true; } }; shields.push(s); return s; }, documentElement: { append() {} } },
+    (t, f) => live.push([t, f]), (t, f) => live.splice(live.findIndex(l => l[0] === t && l[1] === f) >>> 0, 1), () => 1, () => {});
+  run(); run();
+  win.justsaveUndo();
+  assert(shields.every(s => s.gone) && live.length === 0, 'second block() left the first lock in place');
+}
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
@@ -183,6 +193,15 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   assert.strictEqual(removed, 0, 'Delete on a <select> removed the shape');
   f({ key: 'Delete', target: { tagName: 'BODY' } });
   assert.strictEqual(removed, 1);
+  // Ctrl+P on a non-Latin layout (e.key 'з', e.code 'KeyP') must still be intercepted.
+  const ran = [];
+  const g = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    a => ran.push(a), () => {}, () => false, () => true, () => {}, {}, () => {}, () => {}, { dataset: {} });
+  let prevented = 0;
+  g({ ctrlKey: true, key: 'з', code: 'KeyP', target: { tagName: 'BODY' }, preventDefault: () => prevented++ });
+  assert.ok(prevented === 1 && ran[0] === 'print', 'Ctrl+P on a non-Latin layout was not intercepted');
+  g({ ctrlKey: true, key: 'l', code: 'KeyP', target: { tagName: 'BODY' }, preventDefault: () => prevented++ }); // Dvorak Ctrl+L
+  assert.ok(prevented === 1 && ran.length === 1, 'Ctrl+L on Dvorak was taken for print');
 }
 // Fit in a window shorter than the header must not go to a zero or negative scale.
 {

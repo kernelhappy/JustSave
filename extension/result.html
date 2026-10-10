@@ -11,9 +11,8 @@
   button, select { padding: 6px 14px; font: inherit; cursor: pointer; }
   #status { margin-left: 8px; color: light-dark(#555, #aaa); }
   #stage { position: relative; width: fit-content; margin: 16px auto; box-shadow: 0 1px 6px #0004; }
-  #shot { display: block; }
+  #shot { display: block; pointer-events: none; } /* never the target: Chrome's image menu and drag-out would hand over the unredacted capture */
   #stage.cropping { overflow: clip; cursor: crosshair; touch-action: none; user-select: none; }
-  #stage.cropping #shot { pointer-events: none; }
   #stage.marking { cursor: crosshair; touch-action: none; user-select: none; }
   #stage.marking[data-tool=select] { cursor: default; }
   #stage.marking[data-tool=text] { cursor: text; }
