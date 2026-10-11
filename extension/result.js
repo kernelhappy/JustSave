@@ -60,15 +60,14 @@ const ACTIONS = {
       // Only the picker's AbortError means the user cancelled; close() also rejects with one when Safe Browsing or DLP blocks the write.
       .catch(e => { if (e.name === 'AbortError') return null; throw e; });
     if (!handle) return '';
-    const fresh = !(await handle.getFile()).size; // the picker creates a new file empty
     const w = await handle.createWritable();
     try {
       await w.write(await encode(fmt));
       await w.close();
     } catch (e) {
-      // Don't leave an empty file behind; an existing file keeps its old contents.
+      // Don't leave an empty file behind. The picker already emptied an existing file, so there's nothing to keep.
       await w.abort().catch(() => {});
-      if (fresh) await handle.remove().catch(() => {});
+      await handle.remove().catch(() => {});
       throw e;
     }
     return 'Saved ' + handle.name;
