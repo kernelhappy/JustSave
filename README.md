@@ -5,9 +5,7 @@
 
 A Chrome extension that captures the visible area or the entire page, then saves it as PNG, JPG or PDF, copies it, or prints it.
 
-<!-- Screenshot: add docs/screenshot.png, then uncomment.
-![JustSave result tab](docs/screenshot.png)
--->
+![JustSave's result tab showing a capture of its own home page](docs/screenshot.png)
 
 ## Features
 
@@ -34,6 +32,7 @@ A Chrome extension that captures the visible area or the entire page, then saves
 1. Download `JustSave-x.y.zip` from the [latest release](https://github.com/kernelhappy/JustSave/releases/latest) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the unzipped `JustSave` folder.
+4. Optional: to capture in incognito windows, open JustSave's **Details** and turn on **Allow in Incognito**.
 
 ## Permissions
 
