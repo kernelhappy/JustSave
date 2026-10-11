@@ -22,7 +22,8 @@ export function dragEdges(from, edges, dx, dy, lim = NO) {
 export function bounds(s) {
   if (s.pts) {
     const xs = s.pts.map(p => p[0]), ys = s.pts.map(p => p[1]);
-    return { l: Math.min(...xs), t: Math.min(...ys), r: Math.max(...xs), b: Math.max(...ys) };
+    const lo = a => a.reduce((m, v) => Math.min(m, v), Infinity), hi = a => a.reduce((m, v) => Math.max(m, v), -Infinity);
+    return { l: lo(xs), t: lo(ys), r: hi(xs), b: hi(ys) };
   }
   if (s.size) {
     const p = s.type === 'callout' ? 2 * PAD : 0;
@@ -65,7 +66,7 @@ export function resize(s, h, dx, dy) {
   if (!s.size) return { ...s, ...to };
   // Text scales with its box, anchored at the corner opposite the handle.
   // Handles are corners, so the axis dragged further sets the scale; a drag past the anchor puts the text on its other side.
-  const kx = (to.r - to.l) / (from.r - from.l), ky = (to.b - to.t) / (from.b - from.t), k = Math.abs(kx - 1) > Math.abs(ky - 1) ? kx : ky;
+  const kx = from.r === from.l ? 1 : (to.r - to.l) / (from.r - from.l), ky = (to.b - to.t) / (from.b - from.t), k = Math.abs(kx - 1) > Math.abs(ky - 1) ? kx : ky;
   const n = { ...s, size: Math.max(4, s.size * k) }, b = bounds(n), ax = h.includes('w') ? from.r : from.l, ay = h.includes('n') ? from.b : from.t;
   return { ...n, x: to.l === ax ? ax : ax - (b.r - b.l), y: to.t === ay ? ay : ay - (b.b - b.t) };
 }
@@ -83,6 +84,7 @@ function cloud({ l, t, r, b, w }, dpr) {
 
 // pad > 0 draws a pad-wider outline instead, for hit testing.
 function draw(s, pad = 0, dpr = 1) {
+  dpr = s.dpr ?? dpr; // the dpr the shape was drawn at, so zooming later doesn't change its export
   const { c } = s, w = (s.type === 'hl' ? s.w * 4 : s.w) + pad, fill = s.fill ? c : 'none';
   const line = (d, more = '', fill = 'none') => `<path d="${d}" fill="${fill}" stroke="${c}" stroke-width="${f(w)}" stroke-linecap="round" stroke-linejoin="round"${more}/>`;
   const arrow = ([x0, y0], [x1, y1]) => {

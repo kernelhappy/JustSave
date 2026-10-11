@@ -19,7 +19,7 @@ let png = rec?.blob; // replaced by Crop; Save, Copy and Print all use the curre
 if (png) {
   document.title = name;
   $('shot').src = URL.createObjectURL(png);
-  $('status').textContent = note ?? '';
+  $('note').textContent = note ?? ''; // own element: status messages from Save/Copy/Print/Crop never clear it
 } else {
   $('status').textContent = 'This capture is no longer available.';
   for (const el of document.querySelectorAll('header button, header select')) el.disabled = true;
@@ -56,7 +56,10 @@ const ACTIONS = {
     const { description, mime } = TYPES[fmt];
     // The id makes Chrome reopen this dialog in the folder last used with it.
     // No "All files" choice: the bytes are always encoded as fmt, whatever extension gets typed.
-    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: `${name}.${fmt}`, types: [{ description, accept: { [mime]: ['.' + fmt] } }], excludeAcceptAllOption: true });
+    const handle = await showSaveFilePicker({ id: 'justsave', suggestedName: `${name}.${fmt}`, types: [{ description, accept: { [mime]: ['.' + fmt] } }], excludeAcceptAllOption: true })
+      // Only the picker's AbortError means the user cancelled; close() also rejects with one when Safe Browsing or DLP blocks the write.
+      .catch(e => { if (e.name === 'AbortError') return null; throw e; });
+    if (!handle) return '';
     const fresh = !(await handle.getFile()).size; // the picker creates a new file empty
     const w = await handle.createWritable();
     try {
@@ -82,8 +85,10 @@ const ACTIONS = {
     p.src = url;
     await p.decode();
     document.body.classList.add('burned');
-    addEventListener('afterprint', () => { document.body.classList.remove('burned'); p.removeAttribute('src'); URL.revokeObjectURL(url); }, { once: true });
+    // print() blocks until the dialog closes, and returns at once when blocked by policy or throttled (no afterprint),
+    // so clean up on return: a lingering .burned would make a later menu Print use this stale image.
     print();
+    document.body.classList.remove('burned'); p.removeAttribute('src'); URL.revokeObjectURL(url);
     return '';
   },
 };
@@ -98,7 +103,7 @@ async function run(key) {
   try {
     $('status').textContent = await act($('format').value);
   } catch (e) {
-    $('status').textContent = e.name === 'AbortError' ? '' : 'Failed: ' + e.message;
+    $('status').textContent = 'Failed: ' + e.message;
   } finally {
     busy = false;
   }
@@ -109,15 +114,17 @@ document.onclick = ({ target }) => run(target.dataset.act);
 // The fit modes never enlarge past actual size.
 const shot = $('shot'), header = document.querySelector('header');
 // The header is fixed, not sticky, so it stays put when a zoomed-in capture scrolls sideways; pad the page by its height.
-new ResizeObserver(() => { document.body.style.paddingTop = header.offsetHeight + 'px'; }).observe(header);
+new ResizeObserver(() => { document.body.style.paddingTop = header.offsetHeight + 'px'; applyZoom(); }).observe(header); // status text or the Quality select can wrap it
 let zoom = 'fit', scale = 1;
 function applyZoom() {
   const w = shot.naturalWidth / devicePixelRatio, h = shot.naturalHeight / devicePixelRatio;
   if (!w) return;
-  const fitW = Math.min(1, (document.documentElement.clientWidth - 32) / w);
+  const cw = document.documentElement.clientWidth, fitW = Math.min(1, (cw - 32) / w);
   // A window smaller than the chrome would give a zero or negative fit; floor it at the zoom-out limit.
   scale = Math.max(0.05, zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom);
   shot.style.width = w * scale + 'px';
+  // Fit can drop the old layout's vertical scrollbar, which fires no resize: measure again without it (only on widening, so it can't loop).
+  if (zoom === 'fit' && document.documentElement.clientWidth > cw) return applyZoom();
   $('zoom').textContent = Math.round(scale * 100) + '%';
   render();
 }
@@ -254,7 +261,7 @@ function render() {
   if (editing != null) {
     const s = shapes[editing], k = shot.clientWidth / W, p = s.tip ? PAD * s.size : 0;
     ink.querySelector(`[data-i="${editing}"]`).style.visibility = 'hidden';
-    Object.assign(edit.style, { left: (s.x + p - off.x) / W * 100 + '%', top: (s.y + p - off.y) / shot.naturalHeight * 100 + '%', font: `600 ${s.size * k}px/${LH} system-ui, sans-serif`, color: s.tip ? '#111' : s.c });
+    Object.assign(edit.style, { left: (s.x + p - off.x) / W * 100 + '%', top: (s.y + p - off.y) / shot.naturalHeight * 100 + '%', font: `600 ${s.size * k}px/${LH} system-ui, sans-serif`, color: s.tip ? '#111' : s.c, background: s.tip || !['#ffffff', '#fdd835'].includes(s.c) ? '' : '#000c' });
   }
   const now = s ?? styleOf(tool);
   for (const b of $('tools').querySelectorAll('button')) {
@@ -332,6 +339,9 @@ function startEdit(i) {
   edit.hidden = false;
   render();
   edit.focus();
+  // focus() won't scroll an editor that is in the viewport but under the fixed header.
+  const under = header.offsetHeight - edit.getBoundingClientRect().top;
+  if (under > 0) scrollBy(0, -under);
 }
 // Click away or Esc keeps the text; emptied text removes its shape.
 function finishEdit() {
@@ -339,8 +349,14 @@ function finishEdit() {
   const i = editing, text = edit.value.trimEnd();
   editing = null;
   edit.hidden = true;
-  if (text) shapes[i] = { ...shapes[i], text, em: Math.max(...text.split('\n').map(l => measure.measureText(l).width)) / 100 };
-  else {
+  const was = shapes[i];
+  if (text) shapes[i] = { ...shapes[i], text, em: text.split('\n').reduce((m, l) => Math.max(m, measure.measureText(l).width), 0) / 100 };
+  if (text && was.tip) {
+    // A callout left of or above its point keeps the edge facing the point, so new text grows away from it rather than over it.
+    const a = bounds(was), b = bounds(shapes[i]);
+    if (a.l + a.r < 2 * was.tip[0]) shapes[i].x += a.r - b.r;
+    if (a.t + a.b < 2 * was.tip[1]) shapes[i].y += a.b - b.b;
+  } else if (!text) {
     shapes.splice(i, 1);
     cur = null;
   }
@@ -354,14 +370,17 @@ addEventListener('beforeprint', finishEdit);
 function newShape(p) {
   const { c, w, size } = styleOf(tool);
   if (tool === 'pen' || tool === 'hl') return { type: tool, c, w, pts: [p] };
-  if (tool === 'line' || tool === 'arrow') return { type: tool, c, w, pts: [p, p] };
-  if (tool === 'callout') return { type: tool, c, w, size, x: p[0], y: p[1], text: '', em: 0, tip: p };
-  return { type: tool, c, w, fill: style.pen.fill, l: p[0], t: p[1], r: p[0], b: p[1] };
+  if (tool === 'line') return { type: tool, c, w, pts: [p, p] };
+  // dpr: arrowheads, callout pointers and cloud scallops keep the minimum size they had when drawn
+  if (tool === 'arrow') return { type: tool, c, w, dpr, pts: [p, p] };
+  if (tool === 'callout') return { type: tool, c, w, dpr, size, x: p[0], y: p[1], text: '', em: 0, tip: p };
+  return { type: tool, c, w, dpr, fill: style.pen.fill, l: p[0], t: p[1], r: p[0], b: p[1] };
 }
 const atInk = ev => { const [x, y] = at(ev); return [x + off.x, y + off.y]; };
 // A handle of the selected shape resizes it; otherwise Select picks and moves, Text places or edits on release, and the rest draw.
 function markDown(e) {
   const p0 = atInk(e), h = e.target.closest('#pick') && e.target.dataset.h, hit = e.target.closest('#ink [data-i]'), hi = hit && +hit.dataset.i;
+  const k = shot.naturalWidth / shot.clientWidth; // capture px per screen px, so drag thresholds don't change with zoom
   let i = cur, upd;
   if (h) {
     const from = shapes[i];
@@ -401,7 +420,7 @@ function markDown(e) {
     upd = tool === 'pen' || tool === 'hl' ? (ev, dx, dy, p) => {
       const s = shapes[i], q = s.pts.at(-1);
       if (ev.shiftKey) s.pts = [p0, snap(p0, p)];
-      else if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 2) s.pts.push(p);
+      else if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 2 * k) s.pts.push(p);
       return s;
     } : tool === 'line' || tool === 'arrow' ? (ev, dx, dy, p) => ({ ...from, pts: [p0, ev.shiftKey ? snap(p0, p) : p] })
       : tool === 'callout' ? (ev, dx, dy, p) => ({ ...from, x: p[0], y: p[1] })
@@ -423,7 +442,7 @@ function markDown(e) {
     stage.onpointermove = stage.onpointerup = null;
     if (h || tool === 'select') return commit();
     const b = bounds(shapes[i]);
-    if (!['pen', 'hl', 'callout'].includes(tool) && b.r - b.l < 3 && b.b - b.t < 3) {
+    if (!['pen', 'hl', 'callout'].includes(tool) && b.r - b.l < 3 * k && b.b - b.t < 3 * k) {
       shapes.splice(i, 1); // a click, not a drag
       return render();
     }
@@ -463,11 +482,11 @@ onkeydown = e => {
     return;
   }
   if (e.target === edit) {
-    if (e.key === 'Escape') finishEdit();
+    if (e.key === 'Escape' && !e.isComposing) finishEdit();
     return;
   }
   const k = e.key.toLowerCase();
-  if (e.ctrlKey && (k === 'z' || k === 'y')) {
+  if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y')) {
     e.preventDefault();
     go(k === 'y' || e.shiftKey ? 1 : -1);
   } else if (marking() && (e.key === 'Delete' || e.key === 'Backspace') && e.target.tagName !== 'SELECT') remove();

@@ -46,11 +46,12 @@ onMsg({ mode: 'visible', tab }); // lock released after the first capture finish
 await new Promise(r => setTimeout(r, 10));
 assert.strictEqual(injected.filter(n => n === 'here').length, 1);
 // freeze(): a sticky element turned relative must also drop its insets, or top:80px shifts it for good.
+// It walks all of <html>: widgets appended next to <body> must be frozen too (the fake body is empty).
 const src = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8').match(/function freeze[\s\S]*?\r?\n}\r?\n/)[0];
 const set = {}, el = { dataset: {}, getAttribute: () => null, style: { setProperty: (k, v) => { set[k] = v; } } };
 const shadowEl = { dataset: {}, getAttribute: () => null, style: { setProperty() { shadowEl.frozen = true; } } };
 const host = { shadowRoot: { querySelectorAll: () => [shadowEl] } }, win = {};
-new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')(win, { body: { querySelectorAll: () => [el, host] } }, e => ({ position: e === host ? 'static' : 'sticky' }));
+new Function('window', 'document', 'getComputedStyle', src + 'freeze(false);')(win, { body: { querySelectorAll: () => [] }, documentElement: { querySelectorAll: () => [el, host] } }, e => ({ position: e === host ? 'static' : 'sticky' }));
 assert(shadowEl.frozen && win.justsaveFrozen.has(shadowEl), 'freeze() skipped a shadow root');
 assert.strictEqual(set.position, 'relative');
 for (const k of ['top', 'right', 'bottom', 'left']) assert.strictEqual(set[k], 'auto', k);
@@ -79,19 +80,28 @@ assert(dims[0][0] * dims[0][1] <= 268435456, 'stitch canvas ' + dims[0]);
 }
 // Fast capture: output is CSS size x devicePixelRatio x clip.scale, and must fit the canvas limits too (result.js re-encodes it).
 let clip;
+const fastLog = [], ex0 = chrome.scripting.executeScript;
+chrome.scripting.executeScript = async o => { fastLog.push([o.func.name, ...(o.args ?? [])].join()); return ex0(o); };
 chrome.debugger = { attach: async () => {}, detach: async () => {}, sendCommand: async (t, m, p) =>
   m === 'Page.getLayoutMetrics' ? { cssContentSize: { width: 1200, height: 20000 } }
   : m === 'Runtime.evaluate' ? { result: { value: 2 } }
-  : (clip = p.clip, { data: '' }) };
+  : (clip = p.clip, fastLog.push('shot'), { data: '' }) };
 onMsg({ mode: 'fast', tab: { id: 3, index: 0, url: 'https://x.test/' } });
-await new Promise(r => setTimeout(r, 10));
+await new Promise(r => setTimeout(r, 700));
+chrome.scripting.executeScript = ex0;
+// ...taken from the top, not where scrollThrough left the page (hide-on-scroll headers would show scrolled-down).
+assert(fastLog.indexOf('scrollToXY,0,0') > fastLog.indexOf('scrollThrough') && fastLog.indexOf('scrollToXY,0,0') < fastLog.indexOf('shot'), 'fast shot taken scrolled down: ' + fastLog);
 const out = [clip.width * 2 * clip.scale, clip.height * 2 * clip.scale];
 assert(out[0] <= 32767 && out[1] <= 32767 && out[0] * out[1] <= 268435456, 'fast capture ' + out);
 // Result tab handoff: open it in the source tab's current window (create rejects an opener in another window),
 // and if it still can't open, drop the stored capture instead of orphaning it in IndexedDB.
 const files = new Map();
 globalThis.indexedDB = { open() { const o = {}; setTimeout(() => { o.result = { close() {}, transaction() {
-  const tx = { objectStore: () => ({ put: (v, k) => (files.set(k, v), {}), delete: k => (files.delete(k), {}) }) };
+  const tx = { objectStore: () => ({ put: (v, k) => (files.set(k, v), {}), delete: k => (files.delete(k), {}), openCursor() {
+    const req = {}, keys = [...files.keys()];
+    const step = () => setTimeout(() => { const k = keys.shift(); req.onsuccess?.({ target: { result: k === undefined ? null : { value: files.get(k), delete: () => files.delete(k), continue: step } } }); });
+    step(); return req;
+  } }) };
   setTimeout(() => tx.oncomplete());
   return tx;
 } }; o.onsuccess(); }); return o; } };
@@ -99,12 +109,14 @@ const created = [];
 chrome.tabs.get = async () => ({ active: true, windowId: 7, index: 4 });
 chrome.tabs.create = async p => { if (p.windowId !== 7) throw new Error('opener in another window'); created.push(p); return { id: 99 }; };
 const updated = [];
+files.set('stale', { blob: {} }); // left by a result tab that never loaded (closed, crash, worker died)
 chrome.tabs.update = async (id, p) => { updated.push([id, p]); };
 onMsg({ mode: 'visible', tab: { id: 4, index: 0, windowId: 7, url: 'https://x.test/' } }); // create defaults to the focused window, not 7
 await new Promise(r => setTimeout(r, 600));
 assert.strictEqual(created.length, 1);
 assert.strictEqual(created[0].index, 5);
 assert.strictEqual(files.size, 1);
+assert(!files.has('stale'), 'stale capture never swept from IndexedDB');
 // Memory Saver must not discard the result tab: result.js already deleted the record, so a reload loses the capture.
 assert.deepStrictEqual(updated, [[99, { autoDiscardable: false }]], 'result tab is discardable');
 files.clear();
@@ -126,8 +138,41 @@ assert.strictEqual(files.size, 0, 'orphaned capture');
   at.sort((a, b) => a - b).slice(1).forEach((t, i) => assert(t - at[i] >= 500, 'captureVisibleTab calls ' + (t - at[i]).toFixed(1) + 'ms apart'));
   chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex;
 }
+// The debugger's infobar resizes every window's viewport: a fast shot in one window must not land mid-stitch in another.
+{
+  const log = [], cvt = chrome.tabs.captureVisibleTab, ex = chrome.scripting.executeScript, dbg = chrome.debugger;
+  chrome.tabs.get = async id => ({ active: true, windowId: id === 21 ? 8 : 7, index: 0 });
+  chrome.tabs.captureVisibleTab = async () => { log.push('frame'); return ''; };
+  chrome.debugger = { ...dbg, attach: async () => { log.push('attach'); }, detach: async () => { log.push('detach'); } };
+  chrome.scripting.executeScript = async ({ func, args }) => [{ result: func.name === 'scrollToXY' ? { x: 0, y: Math.min(args[1], 50), vw: 100, vh: 100, iw: 100 } : { x: 0, y: 0, w: 100, h: 150 } }];
+  onMsg({ mode: 'full', tab: { id: 20, index: 0, windowId: 7, url: 'https://x.test/' } });
+  onMsg({ mode: 'fast', tab: { id: 21, index: 0, windowId: 8, url: 'https://x.test/' } });
+  await new Promise(r => setTimeout(r, 2500));
+  assert.deepStrictEqual(log, ['frame', 'frame', 'attach', 'detach'], 'fast shot during a stitched capture: ' + log);
+  chrome.tabs.captureVisibleTab = cvt; chrome.scripting.executeScript = ex; chrome.debugger = dbg;
+}
 // Watchdog: if the service worker dies mid-capture (restore() never comes), block() must unlock the page by itself.
 const bg = (await import('node:fs')).readFileSync('./extension/background.js', 'utf8'), fn = n => bg.match(new RegExp(String.raw`function ${n}\([\s\S]*?\r?\n}\r?\n`))[0];
+// stitch(): hitting MAX_FRAMES partway through the bottom row leaves its right part white, which needs the truncation note too.
+{
+  const page = { w: 297, h: 3367 }; // 3 columns x 34 rows: frame 100 is the bottom row's first column
+  const run = new Function('chrome', 'MAX_FRAMES', 'fit', 'sleep', 'shotSlot', 'freeze', 'scrollToXY', 'createImageBitmap', 'OffscreenCanvas', 'fetch', 'async ' + fn('stitch') + 'return stitch;')(
+    { tabs: { get: async () => ({ active: true, windowId: 1 }), captureVisibleTab: async () => '' } }, 100, () => 1, async () => {}, async () => {}, 'freeze', 'scrollToXY',
+    async () => ({ width: 100, close() {} }), class { getContext() { return { fillRect() {}, drawImage() {} }; } convertToBlob() { return {}; } }, async () => ({ blob: async () => ({}) }));
+  const inPage = async (f, x, y) => f === 'scrollToXY' ? { x: Math.min(x, page.w - 100), y: Math.min(y, page.h - 100), vw: 100, vh: 100, iw: 100 } : undefined;
+  const { note } = await run({ windowId: 1 }, true, page, inPage);
+  assert(note, 'partial last row cut without a note');
+}
+// stitch(): a minimized or fully covered window stops painting, so captureVisibleTab returns a stale frame; refuse it.
+{
+  let shots = 0;
+  const run = new Function('chrome', 'MAX_FRAMES', 'fit', 'sleep', 'shotSlot', 'freeze', 'scrollToXY', 'createImageBitmap', 'OffscreenCanvas', 'fetch', 'async ' + fn('stitch') + 'return stitch;')(
+    { tabs: { get: async () => ({ active: true, windowId: 1 }), captureVisibleTab: async () => { shots++; return ''; } } }, 100, () => 1, async () => {}, async () => {}, 'freeze', 'scrollToXY',
+    async () => ({ width: 100, close() {} }), class { getContext() { return { fillRect() {}, drawImage() {} }; } convertToBlob() { return {}; } }, async () => ({ blob: async () => ({}) }));
+  const inPage = async (f, x, y) => f === 'scrollToXY' ? { x, y: Math.min(y, 100), vw: 100, vh: 100, iw: 100 } : typeof f === 'function' ? 'hidden' : undefined;
+  await assert.rejects(run({ windowId: 1 }, true, { w: 100, h: 200 }, inPage), /hidden|minimized|visible/i, 'stitched frames from a hidden window');
+  assert.strictEqual(shots, 0, 'captured a hidden window');
+}
 let timer, shield = { style: {}, remove() { shield.gone = true; } };
 const listeners = new Set(), page = { dataset: { justsave: 'color:red' }, setAttribute(k, v) { page.restored = v; } };
 const doc = { createElement: () => shield, documentElement: { append() {} } };
@@ -156,14 +201,39 @@ assert(shield.gone && listeners.size === 0 && page.restored === 'color:red', 'wa
   win.justsaveUndo();
   assert.strictEqual(root.length, 0, 'undo left the snap override in place');
 }
+// block(): middle-click autoscroll starts on mousedown, and a focused iframe's keys never reach the top window; both scroll mid-capture.
+{
+  const live = [], frame = { tagName: 'IFRAME', blur() { frame.blurred = true; } };
+  new Function('window', 'document', 'addEventListener', 'removeEventListener', 'setTimeout', 'clearTimeout', fn('block') + 'block();')(
+    {}, { activeElement: frame, createElement: () => ({ style: {} }), documentElement: { append() {} } }, t => live.push(t), () => {}, () => 1, () => {});
+  assert(live.includes('mousedown'), 'middle-click autoscroll not blocked');
+  assert(frame.blurred, 'focused iframe keeps keyboard scrolling');
+}
 // fileName: file names reject control and format characters (ZWJ, RLM) that titles of host-less pages can carry.
 const fileName = new Function(fn('fileName') + 'return fileName;')();
 assert.doesNotMatch(fileName({ url: 'file:///x', title: 'a‍b‏cd' }), /[‍‏]/u);
+// ...and the 120-unit cut must not split an emoji's surrogate pair.
+assert(fileName({ url: 'file:///x', title: 'a'.repeat(104) + '😀' }).isWellFormed(), 'lone surrogate in file name');
 // scrollThrough: stop when the page no longer scrolls (fractional zoom, unscrollable window) instead of looping 100x150ms.
 const t0 = Date.now();
-await new Function('document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(
-  { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
+await new Function('window', 'document', 'scrollX', 'scrollY', 'innerHeight', 'scrollBy', 'setTimeout', 'async ' + fn('scrollThrough') + 'return scrollThrough();')(
+  {}, { documentElement: { scrollWidth: 800, scrollHeight: 5000 } }, 0, 0, 600, () => {}, setTimeout);
 assert(Date.now() - t0 < 1000, 'scrollThrough kept waiting on a page that does not scroll');
+// scrollThrough: re-arms the watchdog each step, so a long scroll-through plus a 30s fast capture can't let it unlock the page mid-capture.
+{
+  let arms = 0;
+  const env = { window: { justsaveArm: () => arms++ }, document: { documentElement: { scrollWidth: 800, scrollHeight: 3000 } }, scrollX: 0, scrollY: 0, innerHeight: 600,
+    scrollBy: ({ top }) => { env.scrollY += top; }, setTimeout: f => f() };
+  await new Function('env', 'with (env) { async ' + fn('scrollThrough') + 'return scrollThrough(); }')(env);
+  assert(arms >= 4, 'scrollThrough re-armed the watchdog ' + arms + 'x over 4 steps');
+}
+// scrollThrough: fast mode (no step cap) shoots the whole page, so it must scroll past 100 screens to trigger lazy content.
+{
+  const env = { window: {}, document: { documentElement: { scrollWidth: 800, scrollHeight: 600 * 150 } }, scrollX: 0, scrollY: 0, innerHeight: 600,
+    scrollBy: ({ top }) => { env.scrollY += top; }, setTimeout: f => f() };
+  await new Function('env', 'with (env) { async ' + fn('scrollThrough') + 'return scrollThrough(); }')(env);
+  assert(env.scrollY + 600 >= 600 * 150, 'fast scroll-through stopped at ' + env.scrollY);
+}
 // Markup geometry and serialization.
 const { dragEdges, bounds, move, resize, toSvg, snap, nextSize } = await import('./extension/markup.js');
 assert.deepStrictEqual(snap([0, 0], [10, 2]).map(Math.round), [10, 0]); // near-horizontal -> horizontal
@@ -180,6 +250,7 @@ assert.deepStrictEqual(bounds(resize(label, 'se', 0, 12.5)), { l: 10, t: 10, r: 
 assert.deepStrictEqual(bounds(resize(label, 'nw', 0, -12.5)), { l: -10, t: -2.5, r: 30, b: 22.5 }); // bottom-right stays
 assert.deepStrictEqual(bounds(resize(label, 'se', 20, 0)), { l: 10, t: 10, r: 50, b: 35 }); // a horizontal drag scales too
 assert.deepStrictEqual(bounds(resize(label, 'se', -30, 0)), { l: 0, t: 10, r: 10, b: 16.25 }); // dragged past the left edge: half size, hanging left of the anchor
+assert.ok(Number.isFinite(resize({ ...label, em: 0, text: "u200b" }, "se", 30, 0).size)); // zero-width text: no divide by 0
 const call = move({ type: 'callout', size: 10, em: 1, x: 0, y: 0, text: 'a', tip: [50, 50], w: 2 }, 3, 4);
 assert.deepStrictEqual([call.x, call.y, call.tip], [3, 4, [53, 54]]);
 assert.deepStrictEqual(resize(call, 'tip', 1, 1).tip, [54, 55]);
@@ -191,6 +262,9 @@ assert.doesNotMatch(svg, /opacity="0"/); // hit outlines only on screen
 // Constants scale with dpr like the widths do: 2x the width at dpr 2 draws 2x the arrowhead and scallops.
 assert.match(toSvg([{ type: 'arrow', c: 'red', w: 4, pts: [[0, 0], [1000, 0]] }], { x: 0, y: 0, w: 9, h: 9 }, 0, 2), /M1000 0L964 18L964 -18Z/); // head 3 * 4 + 12 * 2 = 36 long
 assert.strictEqual(toSvg([{ type: 'cloud', c: 'red', w: 1, l: 0, t: 0, r: 100, b: 50 }], { x: 0, y: 0, w: 100, h: 50 }, 0, 2).match(/A\d/g).length, 4 + 2 + 4 + 2); // 24-px scallops
+// A shape keeps the dpr it was drawn at, so later zoom changes don't change its export (bughunt L3 export-r1-3).
+assert.match(toSvg([{ type: 'arrow', c: 'red', w: 4, dpr: 1, pts: [[0, 0], [1000, 0]] }], { x: 0, y: 0, w: 9, h: 9 }, 0, 2), /M1000 0L976 12L976 -12Z/);
+assert.strictEqual(toSvg([{ type: 'cloud', c: 'red', w: 1, dpr: 1, l: 0, t: 0, r: 100, b: 50 }], { x: 0, y: 0, w: 100, h: 50 }, 0, 2).match(/A\d/g).length, 8 + 4 + 8 + 4);
 const odd = toSvg([{ type: 'text', c: 'red', size: 10, em: 1, x: 0, y: 0, text: 'a\f\v\u0000\u001b￾￿\ud800b\tc' }], { x: 0, y: 0, w: 9, h: 9 });
 assert.doesNotMatch(odd, /[^\n\r -퟿-�\u{10000}-\u{10ffff}]/u); // only XML-legal characters, or the export can't decode it
 assert.match(odd, />ab c</); // a tab draws as the one space it's measured as
@@ -242,6 +316,21 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   assert.ok(prevented === 1 && ran[0] === 'print', 'Ctrl+P on a non-Latin layout was not intercepted');
   g({ ctrlKey: true, key: 'l', code: 'KeyP', target: { tagName: 'BODY' }, preventDefault: () => prevented++ }); // Dvorak Ctrl+L
   assert.ok(prevented === 1 && ran.length === 1, 'Ctrl+L on Dvorak was taken for print');
+  const steps = [];
+  const h = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    () => {}, () => {}, () => false, () => false, () => {}, {}, d => steps.push(d), () => {}, { dataset: {} });
+  h({ metaKey: true, key: 'z', target: { tagName: 'BODY' }, preventDefault: () => {} });
+  h({ metaKey: true, shiftKey: true, key: 'z', target: { tagName: 'BODY' }, preventDefault: () => {} });
+  assert.deepStrictEqual(steps, [-1, 1], 'Cmd+Z / Cmd+Shift+Z did not undo / redo');
+  // Esc during IME composition belongs to the IME; it must not end the edit.
+  let fin = 0;
+  const edit = {};
+  const m = new Function('run', 'finishEdit', 'cropping', 'marking', 'remove', 'edit', 'go', 'render', 'stage', `let gesture = false, cur = 0, tool = 'select', onkeydown; ${src.match(/onkeydown = e => \{[\s\S]*?\n\};/)[0]} return onkeydown;`)(
+    () => {}, () => fin++, () => false, () => true, () => {}, edit, () => {}, () => {}, { dataset: {} });
+  m({ key: 'Escape', isComposing: true, target: edit });
+  assert.strictEqual(fin, 0, 'Esc during IME composition ended the edit');
+  m({ key: 'Escape', target: edit });
+  assert.strictEqual(fin, 1);
 }
 // Fit in a window shorter than the header must not go to a zero or negative scale.
 {
@@ -251,6 +340,20 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
     () => label, shot, { offsetHeight: 90 }, { documentElement: { clientWidth: 1000 } }, 100, 1, () => {});
   apply();
   assert.ok(get() > 0, `fit scale ${get()} in a short window`);
+  // Fit with a vertical scrollbar that goes away once the capture shrinks: size for the width without it.
+  const wide = { naturalWidth: 2000, naturalHeight: 400, style: {} };
+  const doc = { documentElement: { get clientWidth() { return parseFloat(wide.style.width) > 1500 ? 983 : 1000; } } };
+  wide.style.width = '3000px'; // zoomed in: tall page with a scrollbar
+  const [apply2, get2] = new Function('$', 'shot', 'header', 'document', 'innerHeight', 'devicePixelRatio', 'render', `let zoom = 'fit', scale = 1; ${src.match(/function applyZoom\(\) \{[\s\S]*?\n\}/)[0]} return [applyZoom, () => scale];`)(
+    () => label, wide, { offsetHeight: 90 }, doc, 900, 1, () => {});
+  apply2();
+  assert.equal(get2(), (1000 - 32) / 2000, 'Fit kept the width of a scrollbar that went away');
+  // A header that changes height (status text, Quality select) re-runs the Fit math, not only the page padding.
+  let ro, zoomed = 0;
+  new Function('ResizeObserver', 'document', 'header', 'applyZoom', src.match(/new ResizeObserver\(.*/)[0])(
+    class { constructor(f) { ro = f; } observe() {} }, { body: { style: {} } }, { offsetHeight: 120 }, () => zoomed++);
+  ro();
+  assert.equal(zoomed, 1, 'header resize did not re-run applyZoom');
 }
 // Zooming the browser keeps the picked width and text size in screen pixels, and the pressed-state match exact.
 {
@@ -303,5 +406,92 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   log.length = 0;
   tools.onclick({ target: { closest: () => ({ dataset: { cmd: 'undo' } }) } });
   assert.ok(!log.includes('go'), 'Undo on an empty new text also undid the previous commit');
+}
+// Capture note ('Page too long…'): shown in its own element, which Save/Copy/Print/Crop status messages never overwrite.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const els = {}, $ = id => (els[id] ??= { textContent: '' });
+  new Function('$', 'document', 'URL', 'png', 'note', 'name', src.match(/if \(png\) \{[\s\S]*?\n\}/)[0])($, {}, { createObjectURL: () => '' }, {}, 'Page too long', 'x');
+  const at = Object.keys(els).find(k => els[k].textContent === 'Page too long');
+  assert.notStrictEqual(at, 'status', 'note shown in the transient status line');
+  assert.strictEqual(src.split(`$('${at}').textContent`).length, 2, 'something else overwrites the note');
+}
+// Print: if print() returns without firing afterprint (policy-blocked, throttled), .burned must not linger for menu Print.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const cls = new Set(), p = { decode: async () => {}, removeAttribute() {} };
+  const act = new Function('$', 'encode', 'document', 'URL', 'addEventListener', 'print',
+    `return {${src.match(/async print\(\) \{[\s\S]*?\n  \},/)[0]}}`)(
+    () => p, async () => ({}), { body: { classList: { add: c => cls.add(c), remove: c => cls.delete(c) } } },
+    { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, () => {}, () => {});
+  await act.print();
+  assert.ok(!cls.has('burned'), 'body.burned left set after a print() that never fired afterprint');
+}
+// Save: an AbortError from close() (Safe Browsing / DLP block after write) is a failure, not a cancelled picker.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const abort = () => Object.assign(new Error('Write operation blocked by Safe Browsing.'), { name: 'AbortError' });
+  const els = {}, $ = id => (els[id] ??= { value: 'png', textContent: '' });
+  let picker;
+  const run = new Function('$', 'encode', 'showSaveFilePicker', 'TYPES', 'name', 'png',
+    `const ACTIONS = {${src.match(/async save\(fmt\) \{[\s\S]*?\n  \},/)[0]}}; ${src.match(/let busy = false;[\s\S]*?\n\}/)[0]}; return run;`)(
+    $, async () => ({}), async () => picker(), { png: { description: 'PNG', mime: 'image/png' } }, 'x', {});
+  picker = async () => ({ name: 'x.png', getFile: async () => ({ size: 0 }), remove: async () => {},
+    createWritable: async () => ({ write: async () => {}, close: async () => { throw abort(); }, abort: async () => {} }) });
+  await run('save');
+  assert.match(els.status.textContent, /^Failed: .*Safe Browsing/, 'blocked write shown as a cancel');
+  picker = async () => { throw abort(); };
+  await run('save');
+  assert.strictEqual(els.status.textContent, '', 'cancelled picker reported as a failure');
+}
+// Popup: a click made while the script-access probe is still pending (page loading) must still capture, not be dropped.
+{
+  const sent = [];
+  globalThis.chrome = {
+    tabs: { query: async () => [{ id: 7 }] },
+    scripting: { executeScript: () => new Promise(() => {}) }, // probe waits for document_idle
+    runtime: { sendMessage: async m => { sent.push(m); } },
+  };
+  globalThis.document = { querySelectorAll: () => [], getElementById: () => ({}) };
+  globalThis.window = { close() {} };
+  import('./extension/popup.js');
+  await new Promise(r => setTimeout(r, 10));
+  assert.strictEqual(typeof document.onclick, 'function', 'popup click handler waits for the probe');
+  await document.onclick({ target: { dataset: { mode: 'visible' } } });
+  assert.deepStrictEqual(sent, [{ mode: 'visible', tab: { id: 7 } }]);
+}
+// Editing text in a light swatch (White/Yellow) must not sit on #edit's near-white CSS background.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
+  const line = src.match(/Object\.assign\(edit\.style, .*/)[0];
+  const run = s => { const edit = { style: {} }; new Function('edit', 's', 'k', 'p', 'W', 'off', 'shot', 'LH', line)(edit, s, 1, 0, 100, { x: 0, y: 0 }, { naturalHeight: 100 }, 1.2); return edit.style; };
+  assert.strictEqual(run({ x: 0, y: 0, size: 16, c: '#ffffff' }).background, '#000c', 'white text gets a dark edit background');
+  assert.strictEqual(run({ x: 0, y: 0, size: 16, c: '#fdd835' }).background, '#000c', 'yellow text gets a dark edit background');
+  assert.notStrictEqual(run({ x: 0, y: 0, size: 16, c: '#e53935' }).background, '#000c', 'red keeps the default light background');
+}
+// A huge paste (150k lines) or pen stroke must not overflow the spread-args limit.
+{
+  const big = Array.from({ length: 150000 }, (_, i) => [i, 1 - i]);
+  assert.deepStrictEqual(bounds({ pts: big }), { l: 0, t: -149998, r: 149999, b: 1 }, 'bounds of a 150k-point stroke');
+  const line = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/if \(text\) shapes\[i\] = .*/)[0];
+  const shapes = [{}], measure = { measureText: l => ({ width: l.length * 10 }) };
+  new Function('shapes', 'i', 'text', 'measure', line)(shapes, 0, 'ab\n' + '\n'.repeat(150000), measure);
+  assert.strictEqual(shapes[0].em, 0.2, 'finishEdit measures a 150k-line text');
+}
+// A callout dragged up-left of its point grows away from the point, not back over it.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/function finishEdit[\s\S]*?\n}/)[0];
+  const shapes = [{ type: 'callout', size: 10, x: 60, y: 60, text: '', em: 0, tip: [100, 100] }], measure = { measureText: l => ({ width: l.length * 60 }) };
+  new Function('shapes', 'measure', 'bounds', 'commit', 'edit', `let editing = 0, cur = 0; ${src}; finishEdit();`)(shapes, measure, bounds, () => {}, { value: 'abcdefgh\nx' });
+  const b = bounds(shapes[0]);
+  assert.ok(b.r <= 100 && b.b <= 100, 'callout box covers its own point');
+}
+// Editing a text whose top is under the fixed header scrolls it clear of the header.
+{
+  const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8').match(/function startEdit[\s\S]*?\n}/)[0];
+  let dy = 0;
+  const edit = { focus() {}, getBoundingClientRect: () => ({ top: 30 }) };
+  new Function('shapes', 'edit', 'render', 'header', 'scrollBy', `let editing, cur; ${src}; startEdit(0);`)([{ text: 'a' }], edit, () => {}, { offsetHeight: 50 }, (x, y) => { dy += y; });
+  assert.strictEqual(dy, -20, 'startEdit scrolls the editor out from under the header');
 }
 console.log('ok');

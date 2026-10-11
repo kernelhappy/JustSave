@@ -13,6 +13,17 @@ const busy = new Set();
 // Each slot opens 510ms after the previous one actually opened, so a late timer can't squeeze two calls together.
 let shots = Promise.resolve();
 const shotSlot = () => { const slot = shots; shots = slot.then(() => sleep(510)); return slot; };
+// A fast shot's debugger shows the "started debugging" infobar in every window, resizing their viewports,
+// so it never overlaps a stitched capture (frames would mix two layouts). Fast shots wait for running
+// stitched captures; a stitched capture waits out fast shots, then holds new ones off until released.
+let debugging = Promise.resolve(); // never rejects
+const stitching = new Set();
+async function holdOffDebugger() {
+  for (let d; d !== debugging; ) await (d = debugging);
+  let done; const p = new Promise(r => { done = r; });
+  stitching.add(p);
+  return () => { stitching.delete(p); done(); };
+}
 
 chrome.runtime.onMessage.addListener(({ mode, tab }) => {
   if (busy.has(tab.id)) return;
@@ -27,18 +38,28 @@ async function capture(tab, mode) {
   const inPage = async (func, ...args) => (await chrome.scripting.executeScript({ target: { tabId: tab.id }, func, args }))[0].result;
   const name = fileName(tab);
   badge('...');
-  let start = { x: 0, y: 0 };
+  let start = { x: 0, y: 0 }, release;
   try {
+    if (mode === 'full') release = await holdOffDebugger();
     if (full) await inPage(block);
     // Page size at click time is the capture size, so infinite-scroll results loaded
     // while we scroll (eBay, feeds) are ignored instead of chased.
     // Visible area survives pages that block scripts as a plain screenshot (scrollbars included); a failed injection can also return null.
-    start = (await inPage(full ? scrollThrough : here).catch(e => { if (full) throw e; })) ?? start;
-    const { blob, note } = mode === 'fast' ? { blob: await debuggerShot(tab.id) }
+    // Stitched stops at MAX_FRAMES screens; fast shoots the whole page, so it scrolls all of it.
+    start = (await (full ? inPage(scrollThrough, ...(mode === 'fast' ? [] : [MAX_FRAMES])) : inPage(here)).catch(e => { if (full) throw e; })) ?? start;
+    // Fast shot: back to the top and let scroll handlers settle, or hide-on-scroll headers show their scrolled-down state.
+    if (mode === 'fast') { await inPage(scrollToXY, 0, 0); await sleep(600); }
+    const fast = mode === 'fast' && Promise.all([debugging, ...stitching]).then(() => debuggerShot(tab.id));
+    if (fast) debugging = fast.catch(() => {});
+    const { blob, note } = fast ? { blob: await fast }
       : full || start.w ? await stitch(tab, full, start, inPage)
       : { blob: await (await fetch(await shotSlot().then(() => chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })))).blob() };
     const id = crypto.randomUUID();
-    await idb('readwrite', st => st.put({ blob, name, note }, id));
+    await idb('readwrite', st => {
+      // Sweep handoffs no result tab picked up (tab closed before loading, crash, worker died, failed read).
+      st.openCursor().onsuccess = e => { const c = e.target.result; if (c) { if (!(c.value.at > Date.now() - 6e5)) c.delete(); c.continue(); } };
+      return st.put({ blob, name, note, at: Date.now() }, id);
+    });
     try {
       // Re-read the tab (it may have moved); create rejects an opener outside the target window, which defaults to the focused one.
       const t = await chrome.tabs.get(tab.id);
@@ -54,6 +75,7 @@ async function capture(tab, mode) {
     console.error(e);
     badge('ERR');
   } finally {
+    release?.();
     await inPage(restore, start.x, start.y).catch(() => {});
   }
 }
@@ -64,6 +86,8 @@ async function stitch(tab, full, start, inPage) {
   // captureVisibleTab grabs whatever tab is showing, so a tab switch would stitch in the wrong page.
   // A tab dragged to another window is still active there, so check the window too.
   const checkActive = async () => { const t = await chrome.tabs.get(tab.id); if (!t.active || t.windowId !== tab.windowId) throw new Error('Tab switched during capture'); };
+  // A minimized or fully covered window stops painting: captureVisibleTab would return the last (stale) frame.
+  const checkVisible = async () => { if (await inPage(() => document.visibilityState) === 'hidden') throw new Error('Window hidden or minimized during capture'); };
   const x0 = full ? 0 : start.x, y0 = full ? 0 : start.y;
   const x1 = full ? start.w : x0 + 1, y1 = full ? start.h : y0 + 1;
 
@@ -80,8 +104,10 @@ async function stitch(tab, full, start, inPage) {
       }
       await shotSlot(); // before checkActive, so a wait can't let a tab switch slip in
       await checkActive();
+      await checkVisible();
       const shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
       await checkActive();
+      await checkVisible();
       frames.push({ ...m, png: await (await fetch(shot)).blob() }); // decoded one at a time while drawing: 100 full-res bitmaps can run the worker out of memory
       more = true;
       // Overlap neighbours by 1px so each frame's (possibly blended) edge row is drawn over.
@@ -109,7 +135,9 @@ async function stitch(tab, full, start, inPage) {
     ctx.drawImage(img, 0, 0, sw, sh, px(f.x - x0), px(f.y - y0), Math.round(sw * k), Math.round(sh * k));
     img.close();
   }
-  const cut = frames.length >= MAX_FRAMES && cssH < start.h - y0;
+  // Cut short above the bottom, or partway through the last row (its right part stays white).
+  const last = frames[frames.length - 1];
+  const cut = frames.length >= MAX_FRAMES && (cssH < start.h - y0 || last.x + last.vw < x0 + cssW);
   return { blob: await canvas.convertToBlob({ type: 'image/png' }), note: cut ? `Page too long: captured the first ${MAX_FRAMES} screens.` : undefined };
 }
 
@@ -143,7 +171,7 @@ function fileName(tab) {
   const stamp = [d.getFullYear() % 100, d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()].map(p).join('');
   let host = '';
   try { host = new URL(tab.url).hostname; } catch {}
-  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\p{Cc}\p{Cf}]+/gu, '_').slice(0, 120).replace(/[. ]+$/, '');
+  return `${stamp} - ${host || tab.title || 'page'}`.replace(/[\\/:*?"<>|~\p{Cc}\p{Cf}]+/gu, '_').slice(0, 120).replace(/\p{Cs}$/u, '').replace(/[. ]+$/, '');
 }
 
 // --- Injected into the page (must be self-contained) ---
@@ -160,12 +188,14 @@ function block() {
   noSnap.textContent = 'html, body { scroll-snap-type: none !important }';
   document.documentElement.append(shield, noSnap);
   window.justsaveStop = e => { e.preventDefault(); e.stopImmediatePropagation(); };
-  for (const t of ['wheel', 'keydown', 'touchmove']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
+  // mousedown: middle-click autoscroll. A focused iframe keeps its keys (they never reach this window) and chains scrolls up to the root.
+  if (document.activeElement?.tagName === 'IFRAME') document.activeElement.blur();
+  for (const t of ['wheel', 'keydown', 'touchmove', 'mousedown']) addEventListener(t, window.justsaveStop, { capture: true, passive: false });
   window.justsaveUndo = () => {
     clearTimeout(window.justsaveDog);
     shield.remove();
     noSnap.remove();
-    for (const t of ['wheel', 'keydown', 'touchmove']) removeEventListener(t, window.justsaveStop, { capture: true });
+    for (const t of ['wheel', 'keydown', 'touchmove', 'mousedown']) removeEventListener(t, window.justsaveStop, { capture: true });
     for (const el of window.justsaveFrozen ?? []) {
       el.setAttribute('style', el.dataset.justsave);
       delete el.dataset.justsave;
@@ -173,21 +203,23 @@ function block() {
     window.justsaveFrozen = null;
   };
   // Watchdog: if the service worker dies mid-capture, restore() never comes, so unlock after 60s of silence
-  // (longest gap: fast capture's 30s timeout plus encoding). Every injected step re-arms it.
+  // (longest gap: fast capture's 30s timeout plus encoding). Every injected step (each scrollThrough step too) re-arms it.
   window.justsaveArm = () => { clearTimeout(window.justsaveDog); window.justsaveDog = setTimeout(window.justsaveUndo, 60000); };
   window.justsaveArm();
 }
 
 function here() {
   const d = document.scrollingElement || document.documentElement; // body in quirks mode
+  if (visualViewport?.scale > 1) return { x: scrollX, y: scrollY }; // pinch zoom: no page size, so a plain shot of what's on screen
   return { x: scrollX, y: scrollY, w: d.scrollWidth, h: d.scrollHeight };
 }
 
 // Scroll through the page (as tall as it is now) so lazy-loaded content loads;
 // returns the original scroll position and the page size.
-async function scrollThrough() {
+async function scrollThrough(steps = Infinity) {
   const d = document.scrollingElement || document.documentElement, x = scrollX, y = scrollY, w = d.scrollWidth, h = d.scrollHeight, wait = ms => new Promise(r => setTimeout(r, ms));
-  for (let i = 0; i < 100 && scrollY + innerHeight < h; i++) {
+  for (let i = 0; i < steps && scrollY + innerHeight < h; i++) {
+    window.justsaveArm?.(); // a long scroll-through plus a 30s fast capture would outlast one 60s watchdog
     const before = scrollY;
     scrollBy({ top: innerHeight, behavior: 'instant' });
     if (scrollY === before) break; // at the bottom (fractional zoom can keep it a hair short of h) or the window can't scroll
@@ -199,6 +231,17 @@ async function scrollThrough() {
 // vw/vh: the viewport without scrollbars (scrollingElement: body in quirks mode); iw: with them, to scale the frame.
 function scrollToXY(x, y) {
   window.justsaveArm?.();
+  const v = visualViewport;
+  if (v?.scale > 1) {
+    // Pinch zoom: the shot is the magnified visual viewport, which scrollTo can't move past the layout viewport's edges;
+    // scrollIntoView moves both. Report the visual viewport in page CSS px (iw: frame width at this scale).
+    const mark = document.createElement('div');
+    mark.style.cssText = `position:absolute;left:${x}px;top:${y}px;width:1px;height:1px`;
+    document.documentElement.append(mark);
+    mark.scrollIntoView({ block: 'start', inline: 'start', behavior: 'instant' });
+    mark.remove();
+    return { x: v.pageLeft, y: v.pageTop, vw: v.width, vh: v.height, iw: innerWidth / v.scale };
+  }
   scrollTo({ left: x, top: y, behavior: 'instant' });
   const d = document.scrollingElement || document.documentElement;
   return { x: scrollX, y: scrollY, vw: d.clientWidth, vh: d.clientHeight, iw: innerWidth };
@@ -210,7 +253,7 @@ function freeze(hideFixed) {
   window.justsaveArm?.();
   // Open shadow roots too: web components can carry their own sticky headers.
   const els = [], walk = root => { for (const el of root.querySelectorAll('*')) { els.push(el); if (el.shadowRoot) walk(el.shadowRoot); } };
-  walk(document.body ?? document.documentElement);
+  walk(document.documentElement); // not body: widgets get appended next to <body> too
   for (const el of els) {
     const pos = getComputedStyle(el).position;
     if (pos !== 'sticky' && !(hideFixed && pos === 'fixed')) continue;

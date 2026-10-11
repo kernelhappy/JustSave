@@ -3,13 +3,13 @@
 <title>JustSave</title>
 <style>
   :root { color-scheme: light dark; }
-  body { margin: 0; font: 14px system-ui, sans-serif; background: light-dark(#e8e8e8, #18191c); }
+  body { margin: 0; width: fit-content; min-width: 100%; box-sizing: border-box; padding: 0 16px; /* a zoomed-in stage overflows, where auto margins give no gutter */ font: 14px system-ui, sans-serif; background: light-dark(#e8e8e8, #18191c); }
   header { position: fixed; top: 0; left: 0; right: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px; background: light-dark(#fff, #202124); box-shadow: 0 1px 4px #0003; }
   #zoombar { margin-left: auto; display: flex; gap: 4px; align-items: center; }
   #zoom { min-width: 4em; text-align: center; font-variant-numeric: tabular-nums; }
   #logo { display: block; height: 32px; }
   button, select { padding: 6px 14px; font: inherit; cursor: pointer; }
-  #status { margin-left: 8px; color: light-dark(#555, #aaa); }
+  #note, #status { margin-left: 8px; color: light-dark(#555, #aaa); }
   #stage { position: relative; width: fit-content; margin: 16px auto; box-shadow: 0 1px 6px #0004; }
   #shot { display: block; pointer-events: none; } /* never the target: Chrome's image menu and drag-out would hand over the unredacted capture */
   #stage.cropping { overflow: clip; cursor: crosshair; touch-action: none; user-select: none; }
@@ -26,10 +26,12 @@
   .box [data-h=e], .box [data-h=w] { top: calc(50% - 6px); cursor: ew-resize; }
   .box [data-h=nw], .box [data-h=se] { cursor: nwse-resize; }
   .box [data-h=ne], .box [data-h=sw] { cursor: nesw-resize; }
-  #sel { outline: 1px dashed #fff; box-shadow: 0 0 0 100vmax #0008; cursor: move; }
+  #sel { outline: 1px dashed #fff; box-shadow: 0 0 0 1000000px #0008; /* 100vmax fell short: a 32767px capture at 8x zoom is ~262000px */ cursor: move; }
   #pick { outline: 1px dashed #1e88e5; pointer-events: none; }
   #pick.ends { outline: none; }
   #pick i { pointer-events: auto; }
+  /* Outside the shape, so a small one (Fit zoom) can still be grabbed inside to move it. */
+  #pick [data-h*=n] { top: -12px; } #pick [data-h*=s] { bottom: -12px; } #pick [data-h*=w] { left: -12px; } #pick [data-h*=e] { right: -12px; }
   #edit { position: absolute; margin: 0; padding: 0; border: 0; outline: 1px dashed #1e88e5; background: #fffc; resize: none; overflow: hidden; white-space: pre; field-sizing: content; min-width: 2ch; }
   #tools { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
   #tools[hidden] { display: none; }
@@ -66,6 +68,7 @@
   <button id="crop" title="Drag over the capture to pick the area to keep (Enter applies, Esc cancels)">Crop</button>
   <button id="uncrop" hidden>Undo crop</button>
   <button id="markup" aria-pressed="false" title="Draw on the capture">Markup</button>
+  <span id="note"></span>
   <span id="status" role="status"></span>
   <span id="zoombar">
     <button data-zoom="fit" title="Whole capture in the window">Fit</button>
