@@ -337,12 +337,12 @@ for (const [active, ends] of [['edit', false], ['body', true]]) {
   const src = (await import('node:fs')).readFileSync('./extension/result.js', 'utf8');
   const shot = { naturalWidth: 800, naturalHeight: 600, style: {} }, label = {};
   const [apply, get] = new Function('$', 'shot', 'header', 'document', 'innerHeight', 'devicePixelRatio', 'render', `let zoom = 'fit', scale = 1; ${src.match(/function applyZoom\(\) \{[\s\S]*?\n\}/)[0]} return [applyZoom, () => scale];`)(
-    () => label, shot, { offsetHeight: 90 }, { documentElement: { clientWidth: 1000 } }, 100, 1, () => {});
+    () => label, shot, { offsetHeight: 90 }, { documentElement: { clientWidth: 1000 }, body: { style: { setProperty() {} } } }, 100, 1, () => {});
   apply();
   assert.ok(get() > 0, `fit scale ${get()} in a short window`);
   // Fit with a vertical scrollbar that goes away once the capture shrinks: size for the width without it.
   const wide = { naturalWidth: 2000, naturalHeight: 400, style: {} };
-  const doc = { documentElement: { get clientWidth() { return parseFloat(wide.style.width) > 1500 ? 983 : 1000; } } };
+  const doc = { documentElement: { get clientWidth() { return parseFloat(wide.style.width) > 1500 ? 983 : 1000; } }, body: { style: { setProperty() {} } } };
   wide.style.width = '3000px'; // zoomed in: tall page with a scrollbar
   const [apply2, get2] = new Function('$', 'shot', 'header', 'document', 'innerHeight', 'devicePixelRatio', 'render', `let zoom = 'fit', scale = 1; ${src.match(/function applyZoom\(\) \{[\s\S]*?\n\}/)[0]} return [applyZoom, () => scale];`)(
     () => label, wide, { offsetHeight: 90 }, doc, 900, 1, () => {});
