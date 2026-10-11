@@ -3,7 +3,9 @@
   <img src="docs/logo-light.png" alt="JustSave" height="64">
 </picture>
 
-A Chrome extension that captures the visible area or the entire page, then saves it as PNG, JPG or PDF, copies it, or prints it.
+Screenshot the visible area or the whole page in Chrome, then save it as PNG, JPG or PDF, copy it, or print it.
+
+**No adware. No malware. No network calls.** Your captures never leave your browser. JustSave is fully open source (MIT), and all of its code is in this repo.
 
 ![JustSave's result tab showing a capture of its own home page](docs/screenshot.png)
 
