@@ -27,7 +27,7 @@ A Chrome extension that captures the visible area or the entire page, then saves
 - **Full page** stops after 100 screens. The result tab says so when it happens.
 - Very large captures are scaled down to fit Chrome's canvas limits (32,767 px per side, 268 megapixels).
 - Chrome doesn't let extensions run on its own pages, the Chrome Web Store, or `file://` pages (unless file access is allowed). There, only **Visible area** can work.
-- Markup is burned in by **Save**, **Copy**, the **Print** button and Ctrl+P. Printing from Chrome's menu (⋮ → Print) prints the live page with the markup as a removable vector layer, so don't rely on it for redaction.
+- Markup is burned in by **Save**, **Copy**, the **Print** button and Ctrl+P with the page focused. Printing from Chrome's menu (⋮ → Print), or pressing Ctrl+P while focus is in the browser UI (find bar, omnibox, etc.) so the page never receives the keypress, prints the live page with the markup as a removable vector layer, so don't rely on it for redaction.
 
 ## Install
 
