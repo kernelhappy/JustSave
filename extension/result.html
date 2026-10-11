@@ -46,7 +46,7 @@
     header, #sel, #pick, #edit { display: none; }
     body { background: none; padding: 0 !important; }
     #stage { margin: 0; box-shadow: none; }
-    #shot, #printshot { width: auto !important; max-width: 100%; }
+    #shot, #printshot { width: var(--actual, auto) !important; max-width: 100%; }
     .burned #stage { display: none; }
     .burned #printshot { display: block; }
   }

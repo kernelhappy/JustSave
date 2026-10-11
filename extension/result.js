@@ -122,6 +122,7 @@ function applyZoom() {
   // A window smaller than the chrome would give a zero or negative fit; floor it at the zoom-out limit.
   scale = Math.max(0.05, zoom === 'fit' ? Math.min(fitW, (innerHeight - header.offsetHeight - 32) / h) : zoom === 'width' ? fitW : zoom);
   shot.style.width = w * scale + 'px';
+  document.body.style.setProperty('--actual', w + 'px'); // print at Actual size, not one CSS px per image pixel
   // Fit can drop the old layout's vertical scrollbar, which fires no resize: measure again without it (only on widening, so it can't loop).
   if (zoom === 'fit' && document.documentElement.clientWidth > cw) return applyZoom();
   $('zoom').textContent = Math.round(scale * 100) + '%';
@@ -131,6 +132,9 @@ function applyZoom() {
 let swapping = false;
 shot.onload = () => { swapping = false; applyZoom(); };
 onresize = () => { syncDpr(); applyZoom(); };
+// A move to a monitor with another scale factor can keep the CSS size and fire no resize; a resolution query still flips.
+const watchDpr = () => matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => { onresize(); watchDpr(); }, { once: true });
+watchDpr();
 const zoomBy = f => { zoom = Math.min(8, Math.max(0.05, scale * f)); applyZoom(); };
 $('zoombar').onclick = ({ target }) => {
   const z = target.dataset.zoom;
