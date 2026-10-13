@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "justSave",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Capture the visible area or the entire page, then save it as PNG, JPG or PDF, copy it, or print it.",
   "homepage_url": "https://github.com/kernelhappy/JustSave",
   "minimum_chrome_version": "123",
