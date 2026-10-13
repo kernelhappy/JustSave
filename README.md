@@ -1,13 +1,13 @@
 <picture>
   <source srcset="docs/logo-dark.png" media="(prefers-color-scheme: dark)">
-  <img src="docs/logo-light.png" alt="JustSave" height="64">
+  <img src="docs/logo-light.png" alt="justSave" height="64">
 </picture>
 
 Screenshot the visible area or the whole page in Chrome, then save it as PNG, JPG or PDF, copy it, or print it.
 
-**No adware. No malware. No network calls.** Your captures never leave your browser. JustSave is fully open source (MIT), and all of its code is in this repo.
+**No adware. No malware. No network calls.** Your captures never leave your browser. justSave is fully open source (MIT), and all of its code is in this repo.
 
-![JustSave's result tab showing a capture of its own home page](docs/screenshot.png)
+![justSave's result tab showing a capture of its own home page](docs/screenshot.png)
 
 ## Features
 
@@ -34,7 +34,7 @@ Screenshot the visible area or the whole page in Chrome, then save it as PNG, JP
 1. Download `JustSave-x.y.zip` from the [latest release](https://github.com/kernelhappy/JustSave/releases/latest) and unzip it.
 2. Open `chrome://extensions` and turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the unzipped `JustSave` folder.
-4. Optional: to capture in incognito windows, open JustSave's **Details** and turn on **Allow in Incognito**.
+4. Optional: to capture in incognito windows, open justSave's **Details** and turn on **Allow in Incognito**.
 
 ## Permissions
 
@@ -46,7 +46,7 @@ Screenshot the visible area or the whole page in Chrome, then save it as PNG, JP
 
 ## Privacy
 
-JustSave makes no network requests and has no analytics. Captures stay in your browser until you save them.
+justSave makes no network requests and has no analytics. Captures stay in your browser until you save them.
 
 ## Development
 
